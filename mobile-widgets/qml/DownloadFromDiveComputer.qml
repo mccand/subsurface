@@ -15,20 +15,19 @@ Kirigami.Page {
 	Layout.fillWidth: true;
 	title: qsTr("Dive Computer")
 
-	property bool selectAll : false
 	property alias dcImportModel: importModel
 	property bool divesDownloaded: false
+	property bool btEnabled: manager.btEnabled()
+	property string btMessage: manager.btEnabled() ? "" : qsTr("Bluetooth is not enabled")
 
 	DCDownloadThread {
 		id: downloadThread
 		deviceData.vendor : comboVendor.currentText
 		deviceData.product : comboProduct.currentText
-
-		//TODO: make this dynamic?
-		deviceData.devName : "/tmp/ttyS1"
+		deviceData.devName : comboConnection.currentText
 
 		//TODO: Make this the default on the C++
-		deviceData.bluetoothMode : isBluetooth.checked
+		deviceData.bluetoothMode : true
 		deviceData.forceDownload : false
 		deviceData.createNewTrip : false
 		deviceData.deviceId : 0
@@ -68,6 +67,24 @@ Kirigami.Page {
 				Layout.fillWidth: true
 				model: vendorList
 				currentIndex: parent.vendoridx
+				delegate: ItemDelegate {
+					width: comboVendor.width
+					contentItem: Text {
+						text: modelData
+						font.pointSize: subsurfaceTheme.regularPointSize
+						verticalAlignment: Text.AlignVCenter
+						elide: Text.ElideRight
+					}
+					highlighted: comboVendor.highlightedIndex === index
+				}
+				contentItem: Text {
+					text: comboVendor.displayText
+					font.pointSize: subsurfaceTheme.regularPointSize
+					leftPadding: Kirigami.Units.gridUnit * 0.5
+					horizontalAlignment: Text.AlignLeft
+					verticalAlignment: Text.AlignVCenter
+					elide: Text.ElideRight
+				}
 				onCurrentTextChanged: {
 					comboProduct.model = downloadThread.data().getProductListFromVendor(currentText)
 					if (currentIndex == downloadThread.data().getDetectedVendorIndex(currentText))
@@ -81,32 +98,66 @@ Kirigami.Page {
 				Layout.fillWidth: true
 				model: null
 				currentIndex: productidx
+				delegate: ItemDelegate {
+					width: comboProduct.width
+					contentItem: Text {
+						text: modelData
+						font.pointSize: subsurfaceTheme.regularPointSize
+						verticalAlignment: Text.AlignVCenter
+						elide: Text.ElideRight
+					}
+					highlighted: comboProduct.highlightedIndex === index
+				}
+				contentItem: Text {
+					text: comboProduct.displayText
+					font.pointSize: subsurfaceTheme.regularPointSize
+					leftPadding: Kirigami.Units.gridUnit * 0.5
+					horizontalAlignment: Text.AlignLeft
+					verticalAlignment: Text.AlignVCenter
+					elide: Text.ElideRight
+				}
+				onCurrentTextChanged: {
+					var newIdx = downloadThread.data().getMatchingAddress(comboVendor.currentText, currentText)
+					if (newIdx != -1)
+						comboConnection.currentIndex = newIdx
+				}
+
 				onModelChanged: {
 					currentIndex = productidx
 				}
 			}
-			Kirigami.Label { text: qsTr("Bluetooth download:") }
-			CheckBox {
-				id: isBluetooth
-				checked: downloadThread.data().getDetectedVendorIndex(ComboBox.currentText) != -1
-				indicator: Rectangle {
-					implicitWidth: 20
-					implicitHeight: 20
-					x: isBluetooth.leftPadding
-					y: parent.height / 2 - height / 2
-					radius: 4
-					border.color: isBluetooth.down ? subsurfaceTheme.PrimaryColor : subsurfaceTheme.darkerPrimaryColor
-					color: subsurfaceTheme.backgroundColor
-
-					Rectangle {
-					    width: 12
-					    height: 12
-					    x: 4
-					    y: 4
-					    radius: 3
-					    color: isBluetooth.down ? subsurfaceTheme.PrimaryColor : subsurfaceTheme.darkerPrimaryColor
-					    visible: isBluetooth.checked
+			Kirigami.Label { text: qsTr(" Connection:") }
+			ComboBox {
+				id: comboConnection
+				Layout.fillWidth: true
+				model: connectionListModel
+				currentIndex: -1
+				delegate: ItemDelegate {
+					width: comboConnection.width
+					contentItem: Text {
+						text: modelData
+						// color: "#21be2b"
+						font.pointSize: subsurfaceTheme.smallPointSize
+						verticalAlignment: Text.AlignVCenter
+						elide: Text.ElideRight
 					}
+					highlighted: comboConnection.highlightedIndex === index
+				}
+				contentItem: Text {
+					text: comboConnection.displayText
+					font.pointSize: subsurfaceTheme.smallPointSize
+					leftPadding: Kirigami.Units.gridUnit * 0.5
+					horizontalAlignment: Text.AlignLeft
+					verticalAlignment: Text.AlignVCenter
+					elide: Text.ElideRight
+				}
+				onCurrentTextChanged: {
+					// pattern that matches BT addresses
+					var btAddr = /[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]/ ;
+					if (btAddr.test(currentText))
+						downloadThread.deviceData.bluetoothMode = true
+					else
+						downloadThread.deviceData.bluetoothMode = false
 				}
 			}
 		}
@@ -119,61 +170,39 @@ Kirigami.Page {
 		}
 
 		RowLayout {
-			Button {
+			anchors.left: parent.left
+			anchors.right: parent.right
+			anchors.margins: Kirigami.Units.smallSpacing
+			spacing: Kirigami.Units.smallSpacing
+			SsrfButton {
 				id: download
-				background: Rectangle {
-					color: subsurfaceTheme.darkerPrimaryColor
-					antialiasing: true
-					radius: Kirigami.Units.smallSpacing * 2
-				}
 				text: qsTr("Download")
-				contentItem: Text {
-					text: download.text
-					color: subsurfaceTheme.darkerPrimaryTextColor
-				}
 				onClicked: {
 					text = qsTr("Retry")
-					if (downloadThread.deviceData.bluetoothMode) {
-						var addr = downloadThread.data().getDetectedDeviceAddress(comboVendor.currentText,
-													  comboProduct.currentText)
-						if (addr !== "")
-							downloadThread.deviceData.devName = addr
-						var vendor = downloadThread.deviceData.getDeviceDescriptorVendor(comboVendor.currentText,
-														 comboProduct.currentText)
-						downloadThread.deviceData.vendor = vendor;
-
-						var product = downloadThread.deviceData.getDeviceDescriptorProduct(comboVendor.currentText,
-														   comboProduct.currentText)
-						downloadThread.deviceData.product = product;
-					}
-					manager.appendTextToLog("DCDownloadThread started for " + downloadThread.deviceData.devName)
+					// strip any BT Name from the address
+					var devName = downloadThread.deviceData.devName
+					downloadThread.deviceData.devName = devName.replace(/ (.*)$/, "")
+					manager.appendTextToLog("DCDownloadThread started for " + downloadThread.deviceData.product + " on "+ downloadThread.deviceData.devName)
 					progressBar.visible = true
 					downloadThread.start()
 				}
 			}
-			Button {
+			SsrfButton {
 				id:quitbutton
-				background: Rectangle {
-					color: subsurfaceTheme.darkerPrimaryColor
-					antialiasing: true
-					radius: Kirigami.Units.smallSpacing * 2
-				}
-				text: qsTr("Quit")
-				contentItem: Text {
-					text: quitbutton.text
-					color: subsurfaceTheme.darkerPrimaryTextColor
-				}
+				text: progressBar.visible ? qsTr("Cancel") : qsTr("Quit")
 				onClicked: {
+					manager.cancelDownloadDC()
+					if (!progressBar.visible)
+						stackView.pop();
 					manager.appendTextToLog("exit DCDownload screen")
-					stackView.pop();
 				}
 			}
-		}
-		Kirigami.Label {
-			Layout.maximumWidth: diveComputerDownloadWindow.width - Kirigami.Units.gridUnit * 2
-			text: divesDownloaded ? qsTr(" Downloaded dives") :
-						(manager.progressMessage != "" ? qsTr("Info:") + " " + manager.progressMessage : qsTr(" No dives"))
-			wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+			Kirigami.Label {
+				Layout.maximumWidth: parent.width - download.width - quitbutton.width
+				text: divesDownloaded ? qsTr(" Downloaded dives") :
+							(manager.progressMessage != "" ? qsTr("Info:") + " " + manager.progressMessage : btMessage)
+				wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+			}
 		}
 
 		ListView {
@@ -188,8 +217,6 @@ Kirigami.Page {
 				depth: model.depth ? model.depth : ""
 				selected: model.selected ? model.selected : false
 
-				backgroundColor: selectAll ? subsurfaceTheme.darkPrimaryColor : subsurfaceTheme.backgroundColor
-
 				onClicked : {
 					console.log("Selecting index" + index);
 					importModel.selectRow(index)
@@ -203,19 +230,10 @@ Kirigami.Page {
 				text: ""  // Spacer on the left for hamburger menu
 				Layout.fillWidth: true
 			}
-			Button {
+			SsrfButton {
 				id: acceptButton
 				enabled: divesDownloaded
-				background: Rectangle {
-					color: enabled ? subsurfaceTheme.darkerPrimaryColor : "gray"
-					antialiasing: true
-					radius: Kirigami.Units.smallSpacing * 2
-				}
 				text: qsTr("Accept")
-				contentItem: Text {
-					text: acceptButton.text
-					color: subsurfaceTheme.darkerPrimaryTextColor
-				}
 				onClicked: {
 					manager.appendTextToLog("Save downloaded dives that were selected")
 					importModel.recordDives()
@@ -229,39 +247,19 @@ Kirigami.Page {
 				text: ""  // Spacer between 2 button groups
 				Layout.fillWidth: true
 			}
-			Button {
+			SsrfButton {
 				id: select
 				enabled: divesDownloaded
-				background: Rectangle {
-					color: enabled ? subsurfaceTheme.darkerPrimaryColor : "gray"
-					antialiasing: true
-					radius: Kirigami.Units.smallSpacing * 2
-				}
 				text: qsTr("Select All")
-				contentItem: Text {
-					text: select.text
-					color: subsurfaceTheme.darkerPrimaryTextColor
-				}
 				onClicked : {
-					selectAll = true
 					importModel.selectAll()
 				}
 			}
-			Button {
+			SsrfButton {
 				id: unselect
 				enabled: divesDownloaded
-				background: Rectangle {
-					color: enabled ? subsurfaceTheme.darkerPrimaryColor : "gray"
-					antialiasing: true
-					radius: Kirigami.Units.smallSpacing * 2
-				}
 				text: qsTr("Unselect All")
-				contentItem: Text {
-					text: unselect.text
-					color: subsurfaceTheme.darkerPrimaryTextColor
-				}
 				onClicked : {
-					selectAll = false
 					importModel.selectNone()
 				}
 			}

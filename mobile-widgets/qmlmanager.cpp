@@ -11,6 +11,7 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QDateTime>
 
 #include "qt-models/divelistmodel.h"
 #include "qt-models/gpslistmodel.h"
@@ -97,12 +98,14 @@ QMLManager::QMLManager() : m_locationServiceEnabled(false),
 #if defined(Q_OS_ANDROID)
 	appLogFileName = QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation).first() + "/subsurface.log";
 	appLogFile.setFileName(appLogFileName);
-	if (!appLogFile.open(QIODevice::ReadWrite)) {
+	if (!appLogFile.open(QIODevice::ReadWrite|QIODevice::Truncate)) {
 		appLogFileOpen = false;
-		appendTextToLog("Failed to open logfile" + appLogFileName);
+		appendTextToLog("Failed to open logfile " + appLogFileName
+				+ " at " + QDateTime::currentDateTime().toString());
 	} else {
 		appLogFileOpen = true;
-		appendTextToLog("Successfully opened logfile" + appLogFileName);
+		appendTextToLog("Successfully opened logfile " + appLogFileName
+				+ " at " + QDateTime::currentDateTime().toString());
 	}
 #endif
 	appendTextToLog("Starting " + getUserAgent());
@@ -113,6 +116,9 @@ QMLManager::QMLManager() : m_locationServiceEnabled(false),
 	// ensure that we start the BTDiscovery - this should be triggered by the export of the class
 	// to QML, but that doesn't seem to always work
 	BTDiscovery *btDiscovery = BTDiscovery::instance();
+	m_btEnabled = btDiscovery->btAvailable();
+#else
+	m_btEnabled = false;
 #endif
 	setShowPin(false);
 	// create location manager service
@@ -275,33 +281,47 @@ void QMLManager::saveCloudCredentials()
 {
 	QSettings s;
 	bool cloudCredentialsChanged = false;
+	// make sure we only have letters, numbers, and +-_. in password and email address
+	QRegularExpression regExp("^[a-zA-Z0-9@.+_-]+$");
+	QString cloudPwd = cloudPassword();
+	QString cloudUser = cloudUserName();
+	if (cloudPwd.isEmpty() || !regExp.match(cloudPwd).hasMatch() || !regExp.match(cloudUser).hasMatch()) {
+		setStartPageText(RED_FONT + tr("Cloud storage email and password can only consist of letters, numbers, and '.', '-', '_', and '+'.") + END_FONT);
+		return;
+	}
+	// use the same simplistic regex as the backend to check email addresses
+	regExp = QRegularExpression("^[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.+_-]+\\.[a-zA-Z0-9]+");
+	if (!regExp.match(cloudUser).hasMatch()) {
+		setStartPageText(RED_FONT + tr("Invalid format for email address") + END_FONT);
+		return;
+	}
+	setOldStatus(credentialStatus());
 	s.beginGroup("CloudStorage");
-	s.setValue("email", cloudUserName());
-	s.setValue("password", cloudPassword());
+	s.setValue("email", cloudUser);
+	s.setValue("password", cloudPwd);
 	s.sync();
-	if (!same_string(prefs.cloud_storage_email, qPrintable(cloudUserName()))) {
+	if (!same_string(prefs.cloud_storage_email, qPrintable(cloudUser))) {
 		free(prefs.cloud_storage_email);
-		prefs.cloud_storage_email = strdup(qPrintable(cloudUserName()));
+		prefs.cloud_storage_email = strdup(qPrintable(cloudUser));
 		cloudCredentialsChanged = true;
 	}
 
-	cloudCredentialsChanged |= !same_string(prefs.cloud_storage_password, qPrintable(cloudPassword()));
+	cloudCredentialsChanged |= !same_string(prefs.cloud_storage_password, qPrintable(cloudPwd));
 
 	if (!cloudCredentialsChanged) {
 		// just go back to the dive list
 		setCredentialStatus(oldStatus());
 	}
 
-	if (!same_string(prefs.cloud_storage_password, qPrintable(cloudPassword()))) {
+	if (!same_string(prefs.cloud_storage_password, qPrintable(cloudPwd))) {
 		free(prefs.cloud_storage_password);
-		prefs.cloud_storage_password = strdup(qPrintable(cloudPassword()));
+		prefs.cloud_storage_password = strdup(qPrintable(cloudPwd));
 	}
-	if (cloudUserName().isEmpty() || cloudPassword().isEmpty()) {
+	if (cloudUser.isEmpty() || cloudPwd.isEmpty()) {
 		setStartPageText(RED_FONT + tr("Please enter valid cloud credentials.") + END_FONT);
 	} else if (cloudCredentialsChanged) {
 		// let's make sure there are no unsaved changes
 		saveChangesLocal();
-
 		free(prefs.userid);
 		prefs.userid = NULL;
 		syncLoadFromCloud();
@@ -353,9 +373,14 @@ void QMLManager::checkCredentialsAndExecute(execute_function_type execute)
 		}
 		myTimer.stop();
 		setCloudPin("");
-		if (prefs.cloud_verification_status != CS_VERIFIED) {
+		if (prefs.cloud_verification_status == CS_INCORRECT_USER_PASSWD) {
+			appendTextToLog(QStringLiteral("Incorrect cloud credentials"));
+			setStartPageText(RED_FONT + tr("Incorrect cloud credentials") + END_FONT);
+			revertToNoCloudIfNeeded();
+			return;
+		} else if (prefs.cloud_verification_status != CS_VERIFIED) {
 			// here we need to enter the PIN
-			appendTextToLog(QStringLiteral("Need to verify the email address - enter PIN in desktop app"));
+			appendTextToLog(QStringLiteral("Need to verify the email address - enter PIN"));
 			setStartPageText(RED_FONT + tr("Cannot connect to cloud storage - cloud account not verified") + END_FONT);
 			revertToNoCloudIfNeeded();
 			setShowPin(true);
@@ -807,7 +832,7 @@ bool QMLManager::checkDepth(DiveObjectHelper *myDive, dive *d, QString depth)
 // update the dive and return the notes field, stripped of the HTML junk
 void QMLManager::commitChanges(QString diveId, QString date, QString location, QString gps, QString duration, QString depth,
 			       QString airtemp, QString watertemp, QString suit, QString buddy, QString diveMaster, QString weight, QString notes,
-			       QString startpressure, QString endpressure, QString gasmix, QString cylinder)
+			       QString startpressure, QString endpressure, QString gasmix, QString cylinder, int rating, int visibility)
 {
 	struct dive *d = get_dive_by_uniq_id(diveId.toInt());
 	DiveObjectHelper *myDive = new DiveObjectHelper(d);
@@ -910,6 +935,14 @@ void QMLManager::commitChanges(QString diveId, QString date, QString location, Q
 		diveChanged = true;
 		free(d->divemaster);
 		d->divemaster = strdup(qPrintable(diveMaster));
+	}
+	if (myDive->rating() != rating) {
+		diveChanged = true;
+		d->rating = rating;
+	}
+	if (myDive->visibility() != visibility) {
+		diveChanged = true;
+		d->visibility = visibility;
 	}
 	if (myDive->notes() != notes) {
 		diveChanged = true;
@@ -1102,6 +1135,11 @@ void QMLManager::deleteDive(int id)
 	changesNeedSaving();
 }
 
+void QMLManager::cancelDownloadDC()
+{
+	import_thread_cancelled = true;
+}
+
 QString QMLManager::addDive()
 {
 	appendTextToLog("Adding new dive.");
@@ -1189,6 +1227,7 @@ void QMLManager::setLocationServiceEnabled(bool locationServiceEnabled)
 {
 	m_locationServiceEnabled = locationServiceEnabled;
 	locationProvider->serviceEnable(m_locationServiceEnabled);
+	emit locationServiceEnabledChanged();
 }
 
 bool QMLManager::locationServiceAvailable() const
@@ -1277,6 +1316,7 @@ int QMLManager::timeThreshold() const
 void QMLManager::setTimeThreshold(int time)
 {
 	m_timeThreshold = time;
+	locationProvider->setGpsTimeThreshold(m_timeThreshold * 60);
 	emit timeThresholdChanged();
 }
 
@@ -1557,6 +1597,22 @@ void QMLManager::setLibdcLog(bool value)
 	m_libdcLog = value;
 	DCDeviceData::instance()->setSaveLog(value);
 	emit libdcLogChanged();
+}
+
+bool QMLManager::developer() const
+{
+	return m_developer;
+}
+
+void QMLManager::setDeveloper(bool value)
+{
+	m_developer = value;
+	emit developerChanged();
+}
+
+bool QMLManager::btEnabled() const
+{
+	return m_btEnabled;
 }
 
 #if defined (Q_OS_ANDROID)

@@ -353,15 +353,7 @@ sample_cb(dc_sample_type_t type, dc_sample_value_t value, void *userdata)
 		sample->depth.mm = lrint(value.depth * 1000);
 		break;
 	case DC_SAMPLE_PRESSURE:
-		/* Do we already have a pressure reading? */
-		if (sample->cylinderpressure.mbar) {
-			/* Do we prefer the one we already have? */
-			/* If so, just ignore the new one */
-			if (sample->sensor == current_gas_index)
-				break;
-		}
-		sample->sensor = value.pressure.tank;
-		sample->cylinderpressure.mbar = lrint(value.pressure.value * 1000);
+		add_sample_pressure(sample, value.pressure.tank, lrint(value.pressure.value * 1000));
 		break;
 	case DC_SAMPLE_GASMIX:
 		handle_gasmix(dc, sample, value.gasmix);
@@ -603,7 +595,7 @@ static void parse_string_field(struct dive *dive, dc_field_string_t *str)
 }
 #endif
 
-static dc_status_t libdc_header_parser(dc_parser_t *parser, dc_user_device_t *devdata, struct dive *dive)
+static dc_status_t libdc_header_parser(dc_parser_t *parser, device_data_t *devdata, struct dive *dive)
 {
 	dc_status_t rc = 0;
 	dc_datetime_t dt = { 0 };
