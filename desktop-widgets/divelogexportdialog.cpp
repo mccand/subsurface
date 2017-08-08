@@ -247,17 +247,17 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 
 	struct membuffer buf = {};
 
-	put_format(&buf, "\\input subsurfacetemplate\n");
 	put_format(&buf, "%% This is a plain TeX file. Compile with pdftex, not pdflatex!\n");
 	put_format(&buf, "%% You will also need a subsurfacetemplate.tex in the current directory.\n");
 	put_format(&buf, "%% You can download an example from http://www.atdotde.de/~robert/subsurfacetemplate\n%%\n");
+	put_format(&buf, "%%\n");
+	put_format(&buf, "\\input subsurfacetemplate\n");
 	put_format(&buf, "%%\n");
 	put_format(&buf, "%% Notes: TeX/LaTex will not render the degree symbol correctly by default. In LaTeX, you may\n");
 	put_format(&buf, "%% add the following line to the end of the preamble of your template to ensure correct output:\n");
 	put_format(&buf, "%% \\usepackage[utf8]{inputenc}\n");
 	put_format(&buf, "%% \\usepackage{gensymb}\n");
-	put_format(&buf, "%% \\DeclareUnicodeCharacter{00B0}{\degree}\n"); //replaces ° with \degree
-	put_format(&buf, "%%\n");
+	put_format(&buf, "%% \\DeclareUnicodeCharacter{00B0}{\\degree}\n"); //replaces ° with \degree
 
 	/* Define text fields with the units used for export.  These values are set in the Subsurface Preferences
 	 * and the text fields created here are included in the data fields below.
@@ -266,7 +266,7 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 	put_format(&buf, "%% referenced as needed in TeX templates.\n");
 	put_format(&buf, "%% \n");
 	put_format(&buf, "%% By default, Subsurface exports units of volume as \"ℓ\" and \"cuft\", which do\n");
-	put_format(&buf, "%% not render well in TeX/LaTeX.  The code below substitutes \"L\" and \"ft$^{3}$\",\n");
+	put_format(&buf, "%% not render well in TeX/LaTeX.  This export substitutes \"L\" and \"ft$^{3}$\",\n");
 	put_format(&buf, "%% respectively.  If you wish to display the original values, you may edit this\n");
 	put_format(&buf, "%% list and all calls to those units will be updated in your document.\n");
 
@@ -294,6 +294,48 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 	tmp = get_vertical_speed_units(1, NULL, &unit);
 	put_format(&buf, "\\def\\verticalspeedunit{%s}\n", unit);
 
+	/* These lines of code creates a new method of defining fields that allows the use of numbers in field
+	 * names within TeX.
+	 */
+	put_format(&buf, "\n%% These two lines initialize the special definitions used for tanks and weights,\n");
+	put_format(&buf, "%% where a number is used in the field name.\n");
+	put_format(&buf, "\\newcount\\zcount\n");
+	put_format(&buf, "\\def\\zdef#1#2#{\\expandafter\\def\\csname\\string#1#2\\endcsname}\n");
+	put_format(&buf, "%%\n");
+	put_format(&buf, "%% These lines of code create an indirect definition that permits the use of numbers\n");
+	put_format(&buf, "%% in TeX field names for cylinder information.  They require a few other lines of\n");
+	put_format(&buf, "%% code listed above.\n");
+	put_format(&buf, "%%\n");
+	put_format(&buf, "\\def\\cyldescription{\\afterassignment\\zcyldescription\\zcount}\n");
+	put_format(&buf, "\\def\\zcyldescription{\\csname\\string\\cylstartpressure\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\cylmixO{\\afterassignment\\zcylmixO\\zcount}\n");
+	put_format(&buf, "\\def\\zcylmixO{\\csname\\string\\cylmixO\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\cylmixH{\\afterassignment\\zcylmixH\\zcount}\n");
+	put_format(&buf, "\\def\\zcylmixH{\\csname\\string\\cylmixH\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\cylmixN{\\afterassignment\\zcylmixN\\zcount}\n");
+	put_format(&buf, "\\def\\zcylmixN{\\csname\\string\\cylmixN\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\cylstartpressure{\\afterassignment\\zcylstartpressure\\zcount}\n");
+	put_format(&buf, "\\def\\zcylstartpressure{\\csname\\string\\cylstartpressure\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\cylendpressure{\\afterassignment\\zcylendpressure\\zcount}\n");
+	put_format(&buf, "\\def\\zcylendpressure{\\csname\\string\\cylendpressure\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "%% These lines of code create an indirect definition that permits the use of numbers\n");
+	put_format(&buf, "%% in TeX field names for weight information.  They require a few other lines of\n");
+	put_format(&buf, "%% code listed above.\n");
+	put_format(&buf, "%%\n");
+	put_format(&buf, "\\def\\weighttype{\\afterassignment\\zweighttype\\zcount}\n");
+	put_format(&buf, "\\def\\zweighttype{\\csname\\string\\weighttype\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+	put_format(&buf, "\\def\\weightamt{\\afterassignment\\zweightamt\\zcount}\n");
+	put_format(&buf, "\\def\\zweightamt{\\csname\\string\\weightamt\\the\\zcount\\endcsname}\n");
+	put_format(&buf, "\n");
+
+
 	put_format(&buf, "\n%%%%%%%%%% Begin Dive Data: %%%%%%%%%%\n");
 
 	for_each_dive (i, dive) {
@@ -307,7 +349,6 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 		QPixmap pix = QPixmap::grabWidget(profile);
 		profile->setToolTipVisibile(true);
 		pix.save(filename.arg(dive->number));
-
 
 		struct tm tm;
 		utc_mkdate(dive->when, &tm);
@@ -358,27 +399,31 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 		put_format(&buf, "\\def\\viz{%s}\n", viz.toUtf8().data());
 		put_format(&buf, "\\def\\rating{%s}\n", rating.toUtf8().data());
 		put_format(&buf, "\\def\\plot{\\includegraphics[width=9cm,height=4cm]{profile%d}}\n", dive->number);
-		put_format(&buf, "\\def\\comment{%s}\n", dive->notes ? dive->notes : "");
 		put_format(&buf, "\\def\\buddy{%s}\n", dive->buddy ? dive->buddy : "");
 		put_format(&buf, "\\def\\divemaster{%s}\n", dive->divemaster ? dive->divemaster : "");
 		put_format(&buf, "\\def\\suit{%s}\n", dive->suit ? dive->suit : "");
+		put_format(&buf, "\\def\\comment{%s}\n", dive->notes ? dive->notes : "");
 
-		//Code block prints start/end press. for all cylinders defined in dive, number of cyl. used, SAC, and total delta_p
+		/* Code block prints Cylinder description, start/end press.,  number of cyl. used, gas percentages for
+		 * for all cylinders defined in dive, as well as SAC and total delta_p for the entire dive.
+		 */
+
 		put_format(&buf, "\n%% Gas use information:\n");
 		qty_cyl = 0;
+
 		for (i = 0; i < MAX_CYLINDERS; i++){
 
 			/* Previously, this IF statement used "is_cylinder_used(...)" to print only the cylinders where pressure
 			 * identified by Subsurface as being used.  Now it prints all cylinders that are associated with the
 			 * dive. This way, bailout cylinders that are not needed are still shown, rather than disappearing,*/
 			if (dive->cylinder[i].type.description != NULL){
-				put_format(&buf, "\\def\\cyl%ddescription{%s}\n", i + 1, dive->cylinder[i].type.description);
-				put_format(&buf, "\\def\\cyl%dmixO2{%.1f\\%}\n", i + 1, get_o2(&dive->cylinder[i].gasmix)/10.0);
-				put_format(&buf, "\\def\\cyl%dmixHe{%.1f\\%}\n", i + 1, get_he(&dive->cylinder[i].gasmix)/10.0);
-				put_format(&buf, "\\def\\cyl%dmixN2{%.1f\\%}\n", i + 1, (100.0 - (get_o2(&dive->cylinder[i].gasmix)/10.0) - (get_he(&dive->cylinder[i].gasmix)/10.0)));
+				put_format(&buf, "\\zdef\\cyldescription%u{%s}\n", i + 1, dive->cylinder[i].type.description);
+				put_format(&buf, "\\zdef\\cylmixO%u{%.1f\\%%}\n", i + 1, get_o2(&dive->cylinder[i].gasmix)/10.0);
+				put_format(&buf, "\\zdef\\cylmixH%u{%.1f\\%%}\n", i + 1, get_he(&dive->cylinder[i].gasmix)/10.0);
+				put_format(&buf, "\\zdef\\cylmixN%u{%.1f\\%%}\n", i + 1, (100.0 - (get_o2(&dive->cylinder[i].gasmix)/10.0) - (get_he(&dive->cylinder[i].gasmix)/10.0)));
 				delta_p.mbar += dive->cylinder[i].start.mbar - dive->cylinder[i].end.mbar;
-				put_format(&buf, "\\def\\cyl%dstartpress{%.1f \\pressureunit}\n", i + 1, get_pressure_units(dive->cylinder[i].start.mbar, &unit)/1.0);
-				put_format(&buf, "\\def\\cyl%dendpress{%.1f \\pressureunit}\n", i + 1, get_pressure_units(dive->cylinder[i].end.mbar, &unit)/1.0);
+				put_format(&buf, "\\zdef\\cylstartpressure%u{%.1f \\pressureunit}\n", i + 1, get_pressure_units(dive->cylinder[i].start.mbar, &unit)/1.0);
+				put_format(&buf, "\\zdef\\cylendpressure%u{%.1f \\pressureunit}\n", i + 1, get_pressure_units(dive->cylinder[i].end.mbar, &unit)/1.0);
 				qty_cyl += 1;
 			}
 		}
@@ -388,24 +433,24 @@ void DiveLogExportDialog::export_TeX(const char *filename, const bool selected_o
 
 		//Code block prints all weights listed in dive.
 		put_format(&buf, "\n%% Weighting information:\n");
+
 		qty_weight = 0;
 		total_weight = 0;
 		for (i = 0; i < MAX_WEIGHTSYSTEMS; i++){
 			if (dive->weightsystem[i].weight.grams != NULL){
-				put_format(&buf, "\\def\\weight%dtype{%s}\n", i + 1, dive->weightsystem[i].description);
-				put_format(&buf, "\\def\\weight%damt{%.3f \\weightunit}\n", i + 1, get_weight_units(dive->weightsystem[i].weight.grams, NULL, &unit));
+				put_format(&buf, "\\zdef\\weighttype%u{%s}\n", i + 1, dive->weightsystem[i].description);
+				put_format(&buf, "\\zdef\\weightamt%u{%.3f \\weightunit}\n", i + 1, get_weight_units(dive->weightsystem[i].weight.grams, NULL, &unit));
 				qty_weight += 1;
 				total_weight += get_weight_units(dive->weightsystem[i].weight.grams, NULL, &unit);
 			}
 		}
-		put_format(&buf, "\\def\\qtyweights{%d}\n", qty_weight);
+		put_format(&buf, "\\def\\qtyweights{%u}\n", qty_weight);
 		put_format(&buf, "\\def\\totalweight{%.2f \\weightunit}\n", total_weight);
 		unit = "";
 
 		// Deprecated fields
 		put_format(&buf, "\n%% Deprecated Fields - kept to maintain compatibility with legacy templates:\n");
 		put_format(&buf, "%% The following fields are deprecated and may not return any value!\n");
-		put_format(&buf, "%% They have been let here to preserve functionality in legacy templates.");
 		put_format(&buf, "%% Do not use these fields in future templates.\n");
 		put_format(&buf, "\\def\\spot{} %% Deprecated - does not return a value\n"); // Deprecated - remains for use in legacy templates
 		put_format(&buf, "\\def\\entrance{} %% Deprecated - does not return a value\n"); // Deprecated - remains for use in legacy templates
