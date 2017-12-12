@@ -61,11 +61,10 @@ void TestPreferences::testPreferences()
 	cloud->setSavePasswordLocal(false);
 	TEST(cloud->savePasswordLocal(), false);
 
-	// Why this is short and not bool?
 	cloud->setSaveUserIdLocal(1);
-	TEST(cloud->saveUserIdLocal(), (short)1);
+	TEST(cloud->saveUserIdLocal(), true);
 	cloud->setSaveUserIdLocal(0);
-	TEST(cloud->saveUserIdLocal(), (short)0);
+	TEST(cloud->saveUserIdLocal(), false);
 
 	cloud->setUserId("Tomaz");
 	TEST(cloud->userId(), QStringLiteral("Tomaz"));
@@ -78,10 +77,10 @@ void TestPreferences::testPreferences()
 	TEST(cloud->verificationStatus(), (short)1);
 
 	auto tecDetails = pref->techDetails;
-	tecDetails->setModp02(0.2);
-	TEST(tecDetails->modp02(), 0.2);
-	tecDetails->setModp02(1.0);
-	TEST(tecDetails->modp02(), 1.0);
+	tecDetails->setModpO2(0.2);
+	TEST(tecDetails->modpO2(), 0.2);
+	tecDetails->setModpO2(1.0);
+	TEST(tecDetails->modpO2(), 1.0);
 
 	tecDetails->setGflow(2);
 	TEST(tecDetails->gflow(), 2);
@@ -132,8 +131,6 @@ void TestPreferences::testPreferences()
 	TEST(tecDetails->zoomedPlot(), true);
 	tecDetails->setShowSac(true);
 	TEST(tecDetails->showSac(), true);
-	tecDetails->setGfLowAtMaxDepth(true);
-	TEST(tecDetails->gfLowAtMaxDepth(), true);
 	tecDetails->setDisplayUnusedTanks(true);
 	TEST(tecDetails->displayUnusedTanks(), true);
 	tecDetails->setShowAverageDepth(true);
@@ -175,8 +172,6 @@ void TestPreferences::testPreferences()
 	TEST(tecDetails->zoomedPlot(), false);
 	tecDetails->setShowSac(false);
 	TEST(tecDetails->showSac(), false);
-	tecDetails->setGfLowAtMaxDepth(false);
-	TEST(tecDetails->gfLowAtMaxDepth(), false);
 	tecDetails->setDisplayUnusedTanks(false);
 	TEST(tecDetails->displayUnusedTanks(), false);
 	tecDetails->setShowAverageDepth(false);
@@ -193,9 +188,9 @@ void TestPreferences::testPreferences()
 	pp->setPn2Threshold(3.0);
 	pp->setPheThreshold(4.0);
 
-	TEST(pp->showPn2(), (short) false);
-	TEST(pp->showPhe(), (short) false);
-	TEST(pp->showPo2(), (short) false);
+	TEST(pp->showPn2(), false);
+	TEST(pp->showPhe(), false);
+	TEST(pp->showPo2(), false);
 	TEST(pp->pn2Threshold(), 3.0);
 	TEST(pp->pheThreshold(), 4.0);
 	TEST(pp->po2ThresholdMin(), 1.0);
@@ -209,9 +204,9 @@ void TestPreferences::testPreferences()
 	pp->setPn2Threshold(6.0);
 	pp->setPheThreshold(7.0);
 
-	TEST(pp->showPn2(), (short) true);
-	TEST(pp->showPhe(), (short) true);
-	TEST(pp->showPo2(), (short) true);
+	TEST(pp->showPn2(), true);
+	TEST(pp->showPhe(), true);
+	TEST(pp->showPo2(), true);
 	TEST(pp->pn2Threshold(), 6.0);
 	TEST(pp->pheThreshold(), 7.0);
 	TEST(pp->po2ThresholdMin(), 4.0);
@@ -235,14 +230,6 @@ void TestPreferences::testPreferences()
 	TEST(fb->albumId(),    QStringLiteral("album-id-2"));
 
 	auto geo = pref->geocoding;
-	geo->setEnableGeocoding(true);
-	geo->setParseDiveWithoutGps(true);
-	geo->setTagExistingDives(true);
-
-	TEST(geo->enableGeocoding(),true);
-	TEST(geo->parseDiveWithoutGps(),true);
-	TEST(geo->tagExistingDives(),true);
-
 	geo->setFirstTaxonomyCategory(TC_NONE);
 	geo->setSecondTaxonomyCategory(TC_OCEAN);
 	geo->setThirdTaxonomyCategory(TC_COUNTRY);
@@ -250,14 +237,6 @@ void TestPreferences::testPreferences()
 	TEST(geo->firstTaxonomyCategory(), TC_NONE);
 	TEST(geo->secondTaxonomyCategory(), TC_OCEAN);
 	TEST(geo->thirdTaxonomyCategory(), TC_COUNTRY);
-
-	geo->setEnableGeocoding(false);
-	geo->setParseDiveWithoutGps(false);
-	geo->setTagExistingDives(false);
-
-	TEST(geo->enableGeocoding(),false);
-	TEST(geo->parseDiveWithoutGps(),false);
-	TEST(geo->tagExistingDives(),false);
 
 	geo->setFirstTaxonomyCategory(TC_OCEAN);
 	geo->setSecondTaxonomyCategory(TC_COUNTRY);
@@ -477,7 +456,7 @@ void TestPreferences::testPreferences()
 
 	TEST(display->divelistFont(),QStringLiteral("comic"));
 	TEST(display->fontSize(), 10.0);
-	TEST(display->displayInvalidDives(),(short) true); //TODO: this is true / false.
+	TEST(display->displayInvalidDives(), true);
 
 	display->setDivelistFont("helvetica");
 	display->setFontSize(14.0);
@@ -485,7 +464,7 @@ void TestPreferences::testPreferences()
 
 	TEST(display->divelistFont(),QStringLiteral("helvetica"));
 	TEST(display->fontSize(), 14.0);
-	TEST(display->displayInvalidDives(),(short) false);
+	TEST(display->displayInvalidDives(), false);
 
 	auto language = pref->language_settings;
 	language->setLangLocale         ("en_US");

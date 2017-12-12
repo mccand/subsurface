@@ -17,6 +17,7 @@
 #include <QStringList>
 #include <QApplication>
 #include <QLoggingCategory>
+#include <QLocale>
 #include <git2.h>
 
 int main(int argc, char **argv)
@@ -28,9 +29,7 @@ int main(int argc, char **argv)
 	(void)application;
 	QStringList arguments = QCoreApplication::arguments();
 
-	bool dedicated_console = arguments.length() > 1 &&
-				 (arguments.at(1) == QString("--win32console"));
-	subsurface_console_init(dedicated_console, false);
+	subsurface_console_init();
 
 	for (i = 1; i < arguments.length(); i++) {
 		QString a = arguments.at(i);
@@ -41,9 +40,11 @@ int main(int argc, char **argv)
 	}
 	git_libgit2_init();
 	setup_system_prefs();
-	if (uiLanguage(0).contains("-US"))
+	if (QLocale().measurementSystem() == QLocale::MetricSystem)
+		default_prefs.units = SI_units;
+	else
 		default_prefs.units = IMPERIAL_units;
-	prefs = default_prefs;
+	copy_prefs(&default_prefs, &prefs);
 	fill_profile_color();
 	fill_computer_list();
 
@@ -51,9 +52,9 @@ int main(int argc, char **argv)
 	taglist_init_global();
 	init_ui();
 	if (prefs.default_file_behavior == LOCAL_DEFAULT_FILE)
-		set_filename(prefs.default_filename, true);
+		set_filename(prefs.default_filename);
 	else
-		set_filename(NULL, true);
+		set_filename(NULL);
 
 	// some hard coded settings
 	prefs.animation_speed = 0; // we render the profile to pixmap, no animations

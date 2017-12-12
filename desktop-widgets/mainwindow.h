@@ -15,9 +15,12 @@
 #include <QProgressDialog>
 
 #include "ui_mainwindow.h"
+#include "ui_plannerDetails.h"
 #include "desktop-widgets/notificationwidget.h"
 #include "core/windowtitleupdate.h"
 #include "core/gpslocation.h"
+
+#define NUM_RECENT_FILES 4
 
 class QSortFilterProxyModel;
 class DiveTripModel;
@@ -63,9 +66,10 @@ public:
 	virtual ~MainWindow();
 	static MainWindow *instance();
 	MainTab *information();
-	void loadRecentFiles(QSettings *s);
-	void addRecentFile(const QStringList &newFiles);
-	void removeRecentFile(QStringList failedFiles);
+	void loadRecentFiles();
+	void updateRecentFiles();
+	void updateRecentFilesMenu();
+	void addRecentFile(const QString &file, bool update);
 	DiveListView *dive_list();
 	DivePlannerWidget *divePlannerWidget();
 	PlannerSettingsWidget *divePlannerSettingsWidget();
@@ -80,14 +84,18 @@ public:
 	ProfileWidget2 *graphics() const;
 	PlannerDetails *plannerDetails() const;
 	void printPlan();
-	void checkSurvey(QSettings *s);
+	void checkSurvey();
 	void setApplicationState(const QByteArray& state);
 	void setStateProperties(const QByteArray& state, const PropertyList& tl, const PropertyList& tr, const PropertyList& bl,const PropertyList& br);
 	bool inPlanner();
 	QUndoStack *undoStack;
 	NotificationWidget *getNotificationWidget();
 	void enableDisableCloudActions();
-	void showError();
+	void setCheckedActionFilterTags(bool checked);
+
+	// Shows errors that have accumulated.
+	// Must be called from GUI thread.
+	void showErrors();
 
 private
 slots:
@@ -179,6 +187,8 @@ slots:
 	void socialNetworkRequestUpload();
 	void facebookLoggedIn();
 	void facebookLoggedOut();
+	void updateVariations(QString);
+
 
 private:
 	Ui::MainWindow ui;
@@ -186,7 +196,8 @@ private:
 	QAction *actionPreviousDive;
 	UserManual *helpView;
 	CurrentState state;
-	QString filter();
+	QString filter_open();
+	QString filter_import();
 	static MainWindow *m_Instance;
 	QString displayedFilename(QString fullFilename);
 	bool askSaveChanges();
@@ -213,6 +224,8 @@ private:
 	struct dive copyPasteDive;
 	struct dive_components what;
 	QList<QAction *> profileToolbarActions;
+	QStringList recentFiles;
+	QAction *actionsRecent[NUM_RECENT_FILES];
 
 	struct WidgetForQuadrant {
 		WidgetForQuadrant(QWidget *tl = 0, QWidget *tr = 0, QWidget *bl = 0, QWidget *br = 0) :

@@ -1,10 +1,10 @@
 import QtQuick 2.6
-import QtQuick.Controls 2.0
+import QtQuick.Controls 2.2 as Controls
 import QtQuick.Window 2.2
 import QtQuick.Dialogs 1.2
 import QtQuick.Layouts 1.3
 import org.subsurfacedivelog.mobile 1.0
-import org.kde.kirigami 2.0 as Kirigami
+import org.kde.kirigami 2.2 as Kirigami
 
 Kirigami.AbstractListItem {
 	id: innerListItem
@@ -45,15 +45,17 @@ Kirigami.AbstractListItem {
 				importModel.selectRow(index)
 			}
 		}
-		Kirigami.Label {
+		Controls.Label {
 			id: dateLabel
 			text: innerListItem.datetime
+			anchors.verticalCenter: parent.verticalCenter
 			width: Math.round(parent.width * 0.35)
 			font.pointSize: subsurfaceTheme.smallPointSize
 			color: textColor
 		}
-		Kirigami.Label {
+		Controls.Label {
 			text: innerListItem.depth + ' / ' + innerListItem.duration
+			anchors.verticalCenter: parent.verticalCenter
 			width: Math.round(parent.width * 0.35)
 			font.pointSize: subsurfaceTheme.smallPointSize
 			color: textColor

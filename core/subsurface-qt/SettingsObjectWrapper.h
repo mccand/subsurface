@@ -18,24 +18,28 @@ class DiveComputerSettings : public QObject {
 	Q_PROPERTY(QString vendor READ dc_vendor WRITE setVendor NOTIFY vendorChanged)
 	Q_PROPERTY(QString product READ dc_product WRITE setProduct NOTIFY productChanged)
 	Q_PROPERTY(QString device READ dc_device WRITE setDevice NOTIFY deviceChanged)
+	Q_PROPERTY(QString device_name READ dc_device_name WRITE setDeviceName NOTIFY deviceNameChanged)
 	Q_PROPERTY(int download_mode READ downloadMode WRITE setDownloadMode NOTIFY downloadModeChanged)
 public:
 	DiveComputerSettings(QObject *parent);
 	QString dc_vendor() const;
 	QString dc_product() const;
 	QString dc_device() const;
+	QString dc_device_name() const;
 	int downloadMode() const;
 
 public slots:
 	void setVendor(const QString& vendor);
 	void setProduct(const QString& product);
 	void setDevice(const QString& device);
+	void setDeviceName(const QString& device_name);
 	void setDownloadMode(int mode);
 
 signals:
 	void vendorChanged(const QString& vendor);
 	void productChanged(const QString& product);
 	void deviceChanged(const QString& device);
+	void deviceNameChanged(const QString& device_name);
 	void downloadModeChanged(int mode);
 private:
 	const QString group = QStringLiteral("DiveComputer");
@@ -70,9 +74,9 @@ private:
 /* Control the state of the Partial Pressure Graphs preferences */
 class PartialPressureGasSettings : public QObject {
 	Q_OBJECT
-	Q_PROPERTY(short show_po2           READ showPo2         WRITE setShowPo2         NOTIFY showPo2Changed)
-	Q_PROPERTY(short show_pn2           READ showPn2         WRITE setShowPn2         NOTIFY showPn2Changed)
-	Q_PROPERTY(short show_phe	    READ showPhe         WRITE setShowPhe         NOTIFY showPheChanged)
+	Q_PROPERTY(bool   show_po2          READ showPo2         WRITE setShowPo2         NOTIFY showPo2Changed)
+	Q_PROPERTY(bool   show_pn2          READ showPn2         WRITE setShowPn2         NOTIFY showPn2Changed)
+	Q_PROPERTY(bool   show_phe	    READ showPhe         WRITE setShowPhe         NOTIFY showPheChanged)
 	Q_PROPERTY(double po2_threshold_min READ po2ThresholdMin WRITE setPo2ThresholdMin NOTIFY po2ThresholdMinChanged)
 	Q_PROPERTY(double po2_threshold_max READ po2ThresholdMax WRITE setPo2ThresholdMax NOTIFY po2ThresholdMaxChanged)
 	Q_PROPERTY(double pn2_threshold     READ pn2Threshold    WRITE setPn2Threshold    NOTIFY pn2ThresholdChanged)
@@ -80,27 +84,27 @@ class PartialPressureGasSettings : public QObject {
 
 public:
 	PartialPressureGasSettings(QObject *parent);
-	short showPo2() const;
-	short showPn2() const;
-	short showPhe() const;
+	bool showPo2() const;
+	bool showPn2() const;
+	bool showPhe() const;
 	double po2ThresholdMin() const;
 	double po2ThresholdMax() const;
 	double pn2Threshold() const;
 	double pheThreshold() const;
 
 public slots:
-	void setShowPo2(short value);
-	void setShowPn2(short value);
-	void setShowPhe(short value);
+	void setShowPo2(bool value);
+	void setShowPn2(bool value);
+	void setShowPhe(bool value);
 	void setPo2ThresholdMin(double value);
 	void setPo2ThresholdMax(double value);
 	void setPn2Threshold(double value);
 	void setPheThreshold(double value);
 
 signals:
-	void showPo2Changed(short value);
-	void showPn2Changed(short value);
-	void showPheChanged(short value);
+	void showPo2Changed(bool value);
+	void showPn2Changed(bool value);
+	void showPheChanged(bool value);
 	void po2ThresholdMaxChanged(double value);
 	void po2ThresholdMinChanged(double value);
 	void pn2ThresholdChanged(double value);
@@ -112,7 +116,7 @@ private:
 
 class TechnicalDetailsSettings : public QObject {
 	Q_OBJECT
-	Q_PROPERTY(double modpO2         READ modp02          WRITE setModp02          NOTIFY modpO2Changed)
+	Q_PROPERTY(double modpO2         READ modpO2          WRITE setModpO2          NOTIFY modpO2Changed)
 	Q_PROPERTY(bool ead              READ ead             WRITE setEad             NOTIFY eadChanged)
 	Q_PROPERTY(bool mod              READ mod             WRITE setMod             NOTIFY modChanged)
 	Q_PROPERTY(bool dcceiling        READ dcceiling       WRITE setDCceiling       NOTIFY dcceilingChanged)
@@ -133,7 +137,6 @@ class TechnicalDetailsSettings : public QObject {
 	Q_PROPERTY(bool show_ccr_sensors  READ showCCRSensors  WRITE setShowCCRSensors  NOTIFY showCCRSensorsChanged)
 	Q_PROPERTY(bool zoomed_plot      READ zoomedPlot      WRITE setZoomedPlot      NOTIFY zoomedPlotChanged)
 	Q_PROPERTY(bool show_sac             READ showSac            WRITE setShowSac            NOTIFY showSacChanged)
-	Q_PROPERTY(bool gf_low_at_maxdepth    READ gfLowAtMaxDepth    WRITE setGfLowAtMaxDepth    NOTIFY gfLowAtMaxDepthChanged)
 	Q_PROPERTY(bool display_unused_tanks READ displayUnusedTanks WRITE setDisplayUnusedTanks NOTIFY displayUnusedTanksChanged)
 	Q_PROPERTY(bool show_average_depth   READ showAverageDepth   WRITE setShowAverageDepth   NOTIFY showAverageDepthChanged)
 	Q_PROPERTY(bool show_pictures_in_profile READ showPicturesInProfile WRITE setShowPicturesInProfile NOTIFY showPicturesInProfileChanged)
@@ -142,7 +145,7 @@ class TechnicalDetailsSettings : public QObject {
 public:
 	TechnicalDetailsSettings(QObject *parent);
 
-	double modp02() const;
+	double modpO2() const;
 	bool ead() const;
 	bool mod() const;
 	bool dcceiling() const;
@@ -163,7 +166,6 @@ public:
 	bool showCCRSensors() const;
 	bool zoomedPlot() const;
 	bool showSac() const;
-	bool gfLowAtMaxDepth() const;
 	bool displayUnusedTanks() const;
 	bool showAverageDepth() const;
 	bool showPicturesInProfile() const;
@@ -171,7 +173,7 @@ public:
 
 public slots:
 	void setMod(bool value);
-	void setModp02(double value);
+	void setModpO2(double value);
 	void setEad(bool value);
 	void setDCceiling(bool value);
 	void setRedceiling(bool value);
@@ -191,7 +193,6 @@ public slots:
 	void setShowCCRSensors(bool value);
 	void setZoomedPlot(bool value);
 	void setShowSac(bool value);
-	void setGfLowAtMaxDepth(bool value);
 	void setDisplayUnusedTanks(bool value);
 	void setShowAverageDepth(bool value);
 	void setShowPicturesInProfile(bool value);
@@ -259,33 +260,21 @@ private:
 /* Control the state of the Geocoding preferences */
 class GeocodingPreferences : public QObject {
 	Q_OBJECT
-	Q_PROPERTY(bool enable_geocoding       READ enableGeocoding        WRITE setEnableGeocoding        NOTIFY enableGeocodingChanged)
-	Q_PROPERTY(bool parse_dive_without_gps READ parseDiveWithoutGps    WRITE setParseDiveWithoutGps    NOTIFY parseDiveWithoutGpsChanged)
-	Q_PROPERTY(bool tag_existing_dives     READ tagExistingDives       WRITE setTagExistingDives       NOTIFY tagExistingDivesChanged)
 	Q_PROPERTY(taxonomy_category first_category     READ firstTaxonomyCategory  WRITE setFirstTaxonomyCategory  NOTIFY firstTaxonomyCategoryChanged)
 	Q_PROPERTY(taxonomy_category second_category    READ secondTaxonomyCategory WRITE setSecondTaxonomyCategory NOTIFY secondTaxonomyCategoryChanged)
 	Q_PROPERTY(taxonomy_category third_category     READ thirdTaxonomyCategory  WRITE setThirdTaxonomyCategory  NOTIFY thirdTaxonomyCategoryChanged)
 public:
 	GeocodingPreferences(QObject *parent);
-	bool enableGeocoding() const;
-	bool parseDiveWithoutGps() const;
-	bool tagExistingDives() const;
 	taxonomy_category firstTaxonomyCategory() const;
 	taxonomy_category secondTaxonomyCategory() const;
 	taxonomy_category thirdTaxonomyCategory() const;
 
 public slots:
-	void setEnableGeocoding(bool value);
-	void setParseDiveWithoutGps(bool value);
-	void setTagExistingDives(bool value);
 	void setFirstTaxonomyCategory(taxonomy_category value);
 	void setSecondTaxonomyCategory(taxonomy_category value);
 	void setThirdTaxonomyCategory(taxonomy_category value);
 
 signals:
-	void enableGeocodingChanged(bool value);
-	void parseDiveWithoutGpsChanged(bool value);
-	void tagExistingDivesChanged(bool value);
 	void firstTaxonomyCategoryChanged(taxonomy_category value);
 	void secondTaxonomyCategoryChanged(taxonomy_category value);
 	void thirdTaxonomyCategoryChanged(taxonomy_category value);
@@ -339,7 +328,7 @@ class CloudStorageSettings : public QObject {
 	Q_PROPERTY(QString userid            READ userId             WRITE setUserId             NOTIFY userIdChanged)
 	Q_PROPERTY(QString base_url          READ baseUrl            WRITE setBaseUrl            NOTIFY baseUrlChanged)
 	Q_PROPERTY(QString git_url           READ gitUrl             WRITE setGitUrl             NOTIFY gitUrlChanged)
-	Q_PROPERTY(short save_userid_local  READ saveUserIdLocal WRITE setSaveUserIdLocal NOTIFY saveUserIdLocalChanged)
+	Q_PROPERTY(bool save_userid_local    READ saveUserIdLocal    WRITE setSaveUserIdLocal    NOTIFY saveUserIdLocalChanged)
 	Q_PROPERTY(bool git_local_only       READ gitLocalOnly       WRITE setGitLocalOnly       NOTIFY gitLocalOnlyChanged)
 	Q_PROPERTY(bool save_password_local  READ savePasswordLocal  WRITE setSavePasswordLocal  NOTIFY savePasswordLocalChanged)
 	Q_PROPERTY(short verification_status READ verificationStatus WRITE setVerificationStatus NOTIFY verificationStatusChanged)
@@ -357,7 +346,7 @@ public:
 	short verificationStatus() const;
 	bool backgroundSync() const;
 	bool gitLocalOnly() const;
-	short saveUserIdLocal() const;
+	bool saveUserIdLocal() const;
 
 public slots:
 	void setPassword(const QString& value);
@@ -371,7 +360,7 @@ public slots:
 	void setVerificationStatus(short value);
 	void setBackgroundSync(bool value);
 	void setGitLocalOnly(bool value);
-	void setSaveUserIdLocal(short value);
+	void setSaveUserIdLocal(bool value);
 
 signals:
 	void passwordChanged(const QString& value);
@@ -385,7 +374,7 @@ signals:
 	void verificationStatusChanged(short value);
 	void backgroundSyncChanged(bool value);
 	void gitLocalOnlyChanged(bool value);
-	void saveUserIdLocalChanged(short value);
+	void saveUserIdLocalChanged(bool value);
 
 private:
 	const QString group = QStringLiteral("CloudStorage");
@@ -398,6 +387,7 @@ class DivePlannerSettings : public QObject {
 	Q_PROPERTY(bool display_runtime     READ displayRuntime       WRITE setDisplayRuntime       NOTIFY displayRuntimeChanged)
 	Q_PROPERTY(bool display_duration    READ displayDuration      WRITE setDisplayDuration      NOTIFY displayDurationChanged)
 	Q_PROPERTY(bool display_transitions READ displayTransitions   WRITE setDisplayTransitions   NOTIFY displayTransitionsChanged)
+	Q_PROPERTY(bool display_variations  READ displayVariations    WRITE setDisplayVariations    NOTIFY displayVariationsChanged)
 	Q_PROPERTY(bool doo2breaks          READ doo2breaks           WRITE setDoo2breaks           NOTIFY doo2breaksChanged)
 	Q_PROPERTY(bool drop_stone_mode     READ dropStoneMode        WRITE setDropStoneMode        NOTIFY dropStoneModeChanged)
 	Q_PROPERTY(bool safetystop          READ safetyStop           WRITE setSafetyStop           NOTIFY safetyStopChanged)
@@ -425,6 +415,7 @@ public:
 	bool displayRuntime() const;
 	bool displayDuration() const;
 	bool displayTransitions() const;
+	bool displayVariations() const;
 	bool doo2breaks() const;
 	bool dropStoneMode() const;
 	bool safetyStop() const;
@@ -451,6 +442,7 @@ public slots:
 	void setDisplayRuntime(bool value);
 	void setDisplayDuration(bool value);
 	void setDisplayTransitions(bool value);
+	void setDisplayVariations(bool value);
 	void setDoo2breaks(bool value);
 	void setDropStoneMode(bool value);
 	void setSafetyStop(bool value);
@@ -477,6 +469,7 @@ signals:
 	void displayRuntimeChanged(bool value);
 	void displayDurationChanged(bool value);
 	void displayTransitionsChanged(bool value);
+	void displayVariationsChanged(bool value);
 	void doo2breaksChanged(bool value);
 	void dropStoneModeChanged(bool value);
 	void safetyStopChanged(bool value);
@@ -512,6 +505,7 @@ class UnitsSettings : public QObject {
 	Q_PROPERTY(bool coordinates_traditional   READ coordinatesTraditional WRITE setCoordinatesTraditional NOTIFY coordinatesTraditionalChanged)
 	Q_PROPERTY(int vertical_speed_time READ verticalSpeedTime    WRITE setVerticalSpeedTime    NOTIFY verticalSpeedTimeChanged)
 	Q_PROPERTY(int duration_units          READ durationUnits        WRITE setDurationUnits         NOTIFY durationUnitChanged)
+	Q_PROPERTY(bool show_units_table          READ showUnitsTable        WRITE setShowUnitsTable         NOTIFY showUnitsTableChanged)
 
 public:
 	UnitsSettings(QObject *parent = 0);
@@ -522,6 +516,7 @@ public:
 	int weight() const;
 	int verticalSpeedTime() const;
 	int durationUnits() const;
+	bool showUnitsTable() const;
 	QString unitSystem() const;
 	bool coordinatesTraditional() const;
 
@@ -533,6 +528,7 @@ public slots:
 	void setWeight(int value);
 	void setVerticalSpeedTime(int value);
 	void setDurationUnits(int value);
+	void setShowUnitsTable(bool value);
 	void setUnitSystem(const QString& value);
 	void setCoordinatesTraditional(bool value);
 
@@ -546,6 +542,7 @@ signals:
 	void unitSystemChanged(const QString& value);
 	void coordinatesTraditionalChanged(bool value);
 	void durationUnitChanged(int value);
+	void showUnitsTableChanged(bool value);
 private:
 	const QString group = QStringLiteral("Units");
 };
@@ -595,20 +592,20 @@ class DisplaySettingsObjectWrapper : public QObject {
 	Q_OBJECT
 	Q_PROPERTY(QString divelist_font     READ divelistFont       WRITE setDivelistFont       NOTIFY divelistFontChanged)
 	Q_PROPERTY(double font_size          READ fontSize           WRITE setFontSize           NOTIFY fontSizeChanged)
-	Q_PROPERTY(short display_invalid_dives  READ displayInvalidDives     WRITE setDisplayInvalidDives       NOTIFY displayInvalidDivesChanged)
+	Q_PROPERTY(bool display_invalid_dives  READ displayInvalidDives     WRITE setDisplayInvalidDives       NOTIFY displayInvalidDivesChanged)
 public:
 	DisplaySettingsObjectWrapper(QObject *parent);
 	QString divelistFont() const;
 	double fontSize() const;
-	short displayInvalidDives() const;
+	bool displayInvalidDives() const;
 public slots:
 	void setDivelistFont(const QString& value);
 	void setFontSize(double value);
-	void setDisplayInvalidDives(short value);
+	void setDisplayInvalidDives(bool value);
 signals:
 	void divelistFontChanged(const QString& value);
 	void fontSizeChanged(double value);
-	void displayInvalidDivesChanged(short value);
+	void displayInvalidDivesChanged(bool value);
 private:
 	const QString group = QStringLiteral("Display");
 };

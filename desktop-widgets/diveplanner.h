@@ -55,7 +55,6 @@ slots:
 	void printDecoPlan();
 	void setSurfacePressure(int surface_pressure);
 	void setSalinity(int salinity);
-
 private:
 	Ui::DivePlanner ui;
 	QAbstractButton *replanButton;
@@ -74,11 +73,11 @@ slots:
 	void bottomSacChanged(const double bottomSac);
 	void decoSacChanged(const double decosac);
 	void printDecoPlan();
-	void setAscRate75(int rate);
-	void setAscRate50(int rate);
-	void setAscRateStops(int rate);
-	void setAscRateLast6m(int rate);
-	void setDescRate(int rate);
+	void setAscrate75(int rate);
+	void setAscrate50(int rate);
+	void setAscratestops(int rate);
+	void setAscratelast6m(int rate);
+	void setDescrate(int rate);
 	void sacFactorChanged(const double factor);
 	void problemSolvingTimeChanged(const int min);
 	void setBottomPo2(double po2);
@@ -86,6 +85,7 @@ slots:
 	void setBestmixEND(int depth);
 	void setBackgasBreaks(bool dobreaks);
 	void disableDecoElements(int mode);
+	void disableBackgasBreaks(bool enabled);
 	void setDiveMode(int mode);
 
 private:
@@ -102,6 +102,7 @@ public:
 	explicit PlannerDetails(QWidget *parent = 0);
 	QPushButton *printPlan() const { return ui.printPlan; }
 	QTextEdit *divePlanOutput() const { return ui.divePlanOutput; }
+	QLabel *divePlannerOutputLabel() const { return ui.divePlanOutputLabel; }
 
 private:
 	Ui::plannerDetails ui;

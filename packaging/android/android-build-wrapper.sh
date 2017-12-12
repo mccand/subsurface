@@ -19,10 +19,10 @@ USE_X=$(case $- in *x*) echo "-x" ;; esac)
 
 # these are the current versions for Qt, Android SDK & NDK:
 
-QT_VERSION=5.9.1
+QT_VERSION=5.9
 LATEST_QT=5.9.1
 NDK_VERSION=r14b
-SDK_VERSION=r25.2.3
+SDK_VERSION=3859397
 
 ANDROID_NDK=android-ndk-${NDK_VERSION}
 ANDROID_SDK=android-sdk-linux
@@ -36,7 +36,7 @@ popd
 if [ "$PLATFORM" = Linux ] ; then
 	QT_BINARIES=qt-opensource-linux-x64-${LATEST_QT}.run
 	NDK_BINARIES=${ANDROID_NDK}-linux-x86_64.zip
-	SDK_TOOLS=tools_${SDK_VERSION}-linux.zip
+	SDK_TOOLS=sdk-tools-linux-${SDK_VERSION}.zip
 else
 	echo "only on Linux so far"
 	exit 1
@@ -67,11 +67,11 @@ if [ ! -d Qt ] ; then
 		wget -q ${QT_DOWNLOAD_URL}
 	fi
 	chmod +x ./${QT_BINARIES}
-	./${QT_BINARIES} --script "$SUBSURFACE_SOURCE"/qt-installer-noninteractive.qs --no-force-installations
+	./${QT_BINARIES} --platform minimal --script "$SUBSURFACE_SOURCE"/qt-installer-noninteractive.qs --no-force-installations
 fi
 
 # patch the cmake / Qt5.7.1 incompatibility mentioned above
-sed -i 's/set_property(TARGET Qt5::Core PROPERTY INTERFACE_COMPILE_FEATURES cxx_decltype)/# set_property(TARGET Qt5::Core PROPERTY INTERFACE_COMPILE_FEATURES cxx_decltype)/' Qt/${QT_VERSION}/android_armv7/lib/cmake/Qt5Core/Qt5CoreConfigExtras.cmake
+sed -i 's/set_property(TARGET Qt5::Core PROPERTY INTERFACE_COMPILE_FEATURES cxx_decltype)/# set_property(TARGET Qt5::Core PROPERTY INTERFACE_COMPILE_FEATURES cxx_decltype)/' Qt/${LATEST_QT}/android_armv7/lib/cmake/Qt5Core/Qt5CoreConfigExtras.cmake
 
 # next we need to get the Android SDK and NDK
 if [ ! -d $ANDROID_NDK ] ; then
@@ -88,43 +88,25 @@ if [ ! -d $ANDROID_SDK ] ; then
 	mkdir $ANDROID_SDK
 	pushd $ANDROID_SDK
 	unzip -q ../$SDK_TOOLS
-	echo "Please select the SDK Platform for the latest API and for API 16 (Android 4.2.1)"
-	echo "as well as the latest Android SDK Tools and Android SDK Platform-tools."
-	echo "You can unselect the various system images that usually are selected by default."
-	echo "Then accept the licenses and install."
-	bash tools/android update sdk
-	# ( sleep 5 && while true ; do sleep 1; echo y; done ) | bash tools/android update sdk --no-ui -a -t 1,2,3,33
-	# this is copied from https://stackoverflow.com/questions/38096225/automatically-accept-all-sdk-licences
-	mkdir -p licenses
-	echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55" > "licenses/android-sdk-license"
-	echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "licenses/android-sdk-preview-license"
-
+	yes | tools/bin/sdkmanager --licenses
+	# FIXME: Read these from build.sh varables, or install them there.
+	tools/bin/sdkmanager tools platform-tools 'platforms;android-27' 'build-tools;25.0.3'
 	popd
 fi
 
-# ok, now we have Qt, SDK, and NDK - let's get us some Subsurface
-if [ ! -d subsurface ] ; then
-	git clone https://github.com/Subsurface-divelog/subsurface.git
+if [ ! -d subsurface/libdivecomputer/src ] ; then
+	pushd subsurface
+	git submodule init
+	git submodule update --recursive
+	popd
 fi
-pushd subsurface
-git pull --rebase
-popd
 
-if [ ! -d libdivecomputer ] ; then
-	git clone -b Subsurface-branch https://github.com/Subsurface-divelog/libdc.git libdivecomputer
-	pushd libdivecomputer
+if [ ! -f subsurface/libdivecomputer/configure ] ; then
+	pushd subsurface/libdivecomputer
 	autoreconf --install
 	autoreconf --install
 	popd
 fi
-pushd libdivecomputer
-git pull --rebase
-if ! git checkout Subsurface-branch ; then
-	echo "can't check out the Subsurface-branch branch of libdivecomputer -- giving up"
-	exit 1
-fi
-popd
-
 
 # and now we need a monotonic build number...
 if [ ! -f ./buildnr.dat ] ; then
@@ -132,25 +114,18 @@ if [ ! -f ./buildnr.dat ] ; then
 else
 	BUILDNR=$(cat ./buildnr.dat)
 fi
-((BUILDNR++))
+BUILDNR=$((BUILDNR+1))
 echo "${BUILDNR}" > ./buildnr.dat
 
-echo "Building Subsurface-mobile ${VERSION} for Android, build nr ${BUILDNR} as Subsurface-mobile-${VERSION}-arm.apk"
-
-if [ "$1" = release ] || [ "$1" = Release ] || [ "$1" = debug ] || [ "$1" = Debug ] ; then
-	RELEASE=$1
-	shift
-else
-	RELEASE=Debug
-fi
+echo "Building Subsurface-mobile for Android, build nr ${BUILDNR}"
 
 rm -f ./subsurface-mobile-build-arm/build/outputs/apk/*.apk
-rm -d ./subsurface-mobile-build-arm/AndroidManifest.xml
+rm -df ./subsurface-mobile-build-arm/AndroidManifest.xml
 
 if [ "$USE_X" ] ; then
-	bash "$USE_X" subsurface/packaging/android/build.sh "$RELEASE" -buildnr "$BUILDNR" arm "$@"
+	bash "$USE_X" "$SUBSURFACE_SOURCE"/packaging/android/build.sh -buildnr "$BUILDNR" arm "$@"
 else
-	bash subsurface/packaging/android/build.sh "$RELEASE" -buildnr "$BUILDNR" arm "$@"
+	bash "$SUBSURFACE_SOURCE"/packaging/android/build.sh -buildnr "$BUILDNR" arm "$@"
 fi
 
 ls -l ./subsurface-mobile-build-arm/build/outputs/apk/*.apk

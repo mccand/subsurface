@@ -2,7 +2,7 @@ TEMPLATE = app
 
 QT += qml quick quickcontrols2 widgets positioning concurrent svg bluetooth
 
-DEFINES += SUBSURFACE_MOBILE BT_SUPPORT
+DEFINES += SUBSURFACE_MOBILE BT_SUPPORT BLE_SUPPORT
 
 CONFIG += c++11
 
@@ -23,8 +23,8 @@ SOURCES += ../../../subsurface-mobile-main.cpp \
     ../../../core/configuredivecomputer.cpp \
     ../../../core/divecomputer.cpp \
     ../../../core/divelogexportlogic.cpp \
-    ../../../core/divesite.cpp \
     ../../../core/divesitehelpers.cpp \
+    ../../../core/errorhelper.c \
     ../../../core/exif.cpp \
     ../../../core/gettextfromc.cpp \
     ../../../core/isocialnetworkintegration.cpp \
@@ -46,6 +46,11 @@ SOURCES += ../../../subsurface-mobile-main.cpp \
     ../../../core/liquivision.c \
     ../../../core/load-git.c \
     ../../../core/parse-xml.c \
+    ../../../core/parse.c \
+    ../../../core/import-suunto.c \
+    ../../../core/import-shearwater.c \
+    ../../../core/import-cobalt.c \
+    ../../../core/import-divinglog.c \
     ../../../core/save-html.c \
     ../../../core/statistics.c \
     ../../../core/worldmap-save.c \
@@ -67,6 +72,7 @@ SOURCES += ../../../subsurface-mobile-main.cpp \
     ../../../core/time.c \
     ../../../core/uemis.c \
     ../../../core/btdiscovery.cpp \
+    ../../../core/connectionlistmodel.cpp \
     ../../../core/qt-ble.cpp \
     ../../../core/subsurface-qt/CylinderObjectHelper.cpp \
     ../../../core/subsurface-qt/DiveObjectHelper.cpp \
@@ -111,15 +117,12 @@ SOURCES += ../../../subsurface-mobile-main.cpp \
 
 RESOURCES += qml.qrc ../../../subsurface.qrc ../../../mobile-widgets/qml/mobile-resources.qrc translations.qrc
 
-LIBS += ../install-root/lib/libcrypto.a \
-        ../install-root/lib/libdivecomputer.a \
+LIBS += ../install-root/lib/libdivecomputer.a \
         ../install-root/lib/libgit2.a \
         ../install-root/lib/libsqlite3.a \
         ../install-root/lib/libzip.a \
         ../install-root/lib/libxslt.a \
         ../install-root/lib/libxml2.a \
-        ../install-root/lib/libssh2.a \
-        ../install-root/lib/libssl.a \
         -liconv
 
 INCLUDEPATH += ../install-root/include/ \
@@ -129,7 +132,8 @@ INCLUDEPATH += ../install-root/include/ \
                ../install-root/include/libexstl \
                ../install-root/include/openssl \
                ../../.. \
-               ../../../core
+	       ../../../core \
+	       ../../../mobile-widgets/qml/kirigami/src/libkirigami
 
 HEADERS += \
     ../../../core/libdivecomputer.h \
@@ -186,6 +190,7 @@ HEADERS += \
     ../../../core/worldmap-save.h \
     ../../../core/downloadfromdcthread.h \
     ../../../core/btdiscovery.h \
+    ../../../core/connectionlistmodel.h \
     ../../../core/qt-ble.h \
     ../../../core/subsurface-qt/CylinderObjectHelper.h \
     ../../../core/subsurface-qt/DiveObjectHelper.h \
@@ -237,8 +242,9 @@ include(deployment.pri)
 include(../../../mobile-widgets/qml/kirigami/kirigami.pri)
 
 ios {
-    ios_icon.files = $$files(../../../icons/AppIcon*.png)
+    QMAKE_ASSET_CATALOGS += ../storeIcon.xcassets
     app_launch_images.files = ../SubsurfaceMobileLaunch.xib $$files(../SubsurfaceMobileLaunchImage*.png)
-    QMAKE_BUNDLE_DATA += app_launch_images ios_icon
+    images.files = ../../../icons/subsurface-mobile-icon.png
+    QMAKE_BUNDLE_DATA += app_launch_images images
     QMAKE_INFO_PLIST = ../Info.plist
 }

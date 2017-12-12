@@ -71,7 +71,9 @@ void DiveEventItem::setupPixmap()
 	 // on iOS devices we need to adjust for Device Pixel Ratio
 	int sz_bigger = metrics.sz_med  * metrics.dpr;
 #else
-	int sz_bigger = metrics.sz_med;
+	// SUBSURFACE_MOBILE, seems a little big from the code,
+	// but looks fine on device
+	int sz_bigger = metrics.sz_big + metrics.sz_med;
 #endif
 #endif
 	int sz_pix = sz_bigger/2; // ex 20px
@@ -79,9 +81,19 @@ void DiveEventItem::setupPixmap()
 #define EVENT_PIXMAP(PIX) QPixmap(QString(PIX)).scaled(sz_pix, sz_pix, Qt::KeepAspectRatio, Qt::SmoothTransformation)
 #define EVENT_PIXMAP_BIGGER(PIX) QPixmap(QString(PIX)).scaled(sz_bigger, sz_bigger, Qt::KeepAspectRatio, Qt::SmoothTransformation)
 	if (same_string(internalEvent->name, "")) {
-		setPixmap(EVENT_PIXMAP(":warning-icon"));
+		setPixmap(EVENT_PIXMAP(":status-warning-icon"));
 	} else if (internalEvent->type == SAMPLE_EVENT_BOOKMARK) {
-		setPixmap(EVENT_PIXMAP(":flag"));
+		setPixmap(EVENT_PIXMAP(":dive-bookmark-icon"));
+	} else if (event_is_gaschange(internalEvent)) {
+		struct gasmix *mix = get_gasmix_from_event(&displayed_dive, internalEvent);
+		if (mix->he.permille)
+			setPixmap(EVENT_PIXMAP_BIGGER(":gaschange-trimix-icon"));
+		else if (gasmix_is_air(mix))
+			setPixmap(EVENT_PIXMAP_BIGGER(":gaschange-air-icon"));
+		else if (mix->o2.permille == 1000)
+			setPixmap(EVENT_PIXMAP_BIGGER(":gaschange-oxygen-icon"));
+		else
+			setPixmap(EVENT_PIXMAP_BIGGER(":gaschange-ean-icon"));
 #ifdef SAMPLE_FLAGS_SEVERITY_SHIFT
 	} else if ((((internalEvent->flags & SAMPLE_FLAGS_SEVERITY_MASK) >> SAMPLE_FLAGS_SEVERITY_SHIFT) == 1) ||
 		    // those are useless internals of the dive computer
@@ -100,21 +112,13 @@ void DiveEventItem::setupPixmap()
 		QPixmap transparentPixmap(4, 20);
 		transparentPixmap.fill(QColor::fromRgbF(1.0, 1.0, 1.0, 0.01));
 		setPixmap(transparentPixmap);
-	} else if (event_is_gaschange(internalEvent)) {
-		struct gasmix *mix = get_gasmix_from_event(&displayed_dive, internalEvent);
-		if (mix->he.permille)
-			setPixmap(EVENT_PIXMAP_BIGGER(":gaschangeTrimix"));
-		else if (gasmix_is_air(mix))
-			setPixmap(EVENT_PIXMAP_BIGGER(":gaschangeAir"));
-		else
-			setPixmap(EVENT_PIXMAP_BIGGER(":gaschangeNitrox"));
 #ifdef SAMPLE_FLAGS_SEVERITY_SHIFT
 	} else if (((internalEvent->flags & SAMPLE_FLAGS_SEVERITY_MASK) >> SAMPLE_FLAGS_SEVERITY_SHIFT) == 2) {
-		setPixmap(EVENT_PIXMAP(":info-icon"));
+		setPixmap(EVENT_PIXMAP(":status-info-icon"));
 	} else if (((internalEvent->flags & SAMPLE_FLAGS_SEVERITY_MASK) >> SAMPLE_FLAGS_SEVERITY_SHIFT) == 3) {
-		setPixmap(EVENT_PIXMAP(":warning-icon"));
+		setPixmap(EVENT_PIXMAP(":status-warning-icon"));
 	} else if (((internalEvent->flags & SAMPLE_FLAGS_SEVERITY_MASK) >> SAMPLE_FLAGS_SEVERITY_SHIFT) == 4) {
-		setPixmap(EVENT_PIXMAP(":violation-icon"));
+		setPixmap(EVENT_PIXMAP(":status-violation-icon"));
 #endif
 	} else if (same_string_caseinsensitive(internalEvent->name, "violation") || // generic libdivecomputer
 		   same_string_caseinsensitive(internalEvent->name, "Safety stop violation")  || // the rest are from the Uemis downloader
@@ -123,17 +127,17 @@ void DiveEventItem::setupPixmap()
 		   same_string_caseinsensitive(internalEvent->name, "Dive time alert")  ||
 		   same_string_caseinsensitive(internalEvent->name, "Low battery alert")  ||
 		   same_string_caseinsensitive(internalEvent->name, "Speed alarm")) {
-		setPixmap(EVENT_PIXMAP(":violation-icon"));
+		setPixmap(EVENT_PIXMAP(":status-violation-icon"));
 	} else if (same_string_caseinsensitive(internalEvent->name, "non stop time") || // generic libdivecomputer
 		   same_string_caseinsensitive(internalEvent->name, "safety stop") ||
 		   same_string_caseinsensitive(internalEvent->name, "safety stop (voluntary)") ||
 		   same_string_caseinsensitive(internalEvent->name, "Tank change suggested") || // Uemis downloader
 		   same_string_caseinsensitive(internalEvent->name, "Marker")) {
-		setPixmap(EVENT_PIXMAP(":info-icon"));
+		setPixmap(EVENT_PIXMAP(":status-info-icon"));
 	} else {
 		// we should do some guessing based on the type / name of the event;
 		// for now they all get the warning icon
-		setPixmap(EVENT_PIXMAP(":warning-icon"));
+		setPixmap(EVENT_PIXMAP(":status-warning-icon"));
 	}
 #undef EVENT_PIXMAP
 #undef EVENT_PIXMAP_BIGGER

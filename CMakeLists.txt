@@ -11,21 +11,19 @@ cmake_minimum_required(VERSION 2.8.11)
 set(CMAKE_AUTOMOC ON)
 include(cmake/Modules/MacroOutOfSourceBuild.cmake)
 MACRO_ENSURE_OUT_OF_SOURCE_BUILD(
-    "We don't support building in source, please create a build folder elsewhere and remember to run git clean -xdf to remoev temporary files created by CMake."
+    "We don't support building in source, please create a build folder elsewhere and remember to run git clean -xdf to remove temporary files created by CMake."
 )
 
 #Options regarding usage of pkgconfig
 option(LIBGIT2_FROM_PKGCONFIG "use pkg-config to retrieve libgit2" OFF)
 option(LIBDC_FROM_PKGCONFIG "use pkg-config to retrieve libdivecomputer" OFF)
 option(LIBGRANTLEE_FROM_PKGCONFIG "use pkg-config to retrieve grantlee" OFF)
-option(LIBMARBLE_FROM_PKGCONFIG "use pkg-config to retrieve marble" OFF)
 
 #Library Handling
 option(FORCE_LIBSSH "force linking with libssh to workaround libgit2 bug" ON)
 option(LIBGIT2_DYNAMIC "search for libgit2.so before libgit2.a" OFF)
 
 #Options regarding disabling parts of subsurface.
-option(NO_MARBLE "disable the marble widget" OFF)
 option(NO_DOCS "disable the docs" OFF)
 option(NO_PRINTING "disable the printing support" OFF)
 option(NO_USERMANUAL "don't include a viewer for the user manual" OFF)
@@ -111,7 +109,6 @@ include(cmake/Modules/pkgconfig_helper.cmake)
 include(cmake/Modules/HandleFindGit2.cmake)
 include(cmake/Modules/HandleFindLibDiveComputer.cmake)
 if(${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "DesktopExecutable")
-	include(cmake/Modules/HandleFindMarble.cmake)
 	include(cmake/Modules/HandleFindGrantlee.cmake)
 	include(cmake/Modules/HandleUserManual.cmake)
 endif()
@@ -120,9 +117,14 @@ include(cmake/Modules/HandleVersionGeneration.cmake)
 include(cmake/Modules/RunOnBuildDir.cmake)
 include(cmake/Modules/cmake_variables_helper.cmake)
 
-pkg_config_library(LIBXML libxml-2.0 REQUIRED)
-pkg_config_library(LIBSQLITE3 sqlite3 REQUIRED)
-pkg_config_library(LIBXSLT libxslt REQUIRED)
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+	include_directories(${CMAKE_OSX_SYSROOT}/usr/include/libxml2)
+	set(SUBSURFACE_LINK_LIBRARIES ${SUBSURFACE_LINK_LIBRARIES} -lxml2 -lxslt -lsqlite3)
+else()
+	pkg_config_library(LIBXML libxml-2.0 REQUIRED)
+	pkg_config_library(LIBSQLITE3 sqlite3 REQUIRED)
+	pkg_config_library(LIBXSLT libxslt REQUIRED)
+endif()
 pkg_config_library(LIBZIP libzip REQUIRED)
 pkg_config_library(LIBUSB libusb-1.0 QUIET)
 
@@ -159,6 +161,8 @@ elseif(${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "MobileExecutable")
 	list(APPEND QT_EXTRA_LIBRARIES Qt5::Quick)
 	list(APPEND QT_EXTRA_LIBRARIES Qt5::QuickControls2)
 	add_definitions(-DSUBSURFACE_MOBILE)
+	message(STATUS "Building Subsurface-mobile requires BT support")
+	set(BTSUPPORT ON)
 endif()
 
 if(ANDROID)
@@ -216,16 +220,18 @@ set(QT_LIBRARIES Qt5::Core Qt5::Concurrent Qt5::Widgets Qt5::Network Qt5::Svg  Q
 set(QT_TEST_LIBRARIES ${QT_LIBRARIES} Qt5::Test)
 
 #disable bluetooth if Qt version is ancient.
-if (BTSUPPORT AND "${Qt5Core_VERSION}" VERSION_LESS 5.4.0)
+if (BTSUPPORT AND Qt5Widgets_VERSION VERSION_LESS 5.4.0)
+	if (${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "MobileExecutable")
+		message(FATAL_ERROR "Subsurface-mobile requires BT and Qt version ${Qt5Widgets_VERSION} is too old for that")
+	endif()
 	set(BTSUPPORT OFF)
 	message(STATUS "Turning off Bluetooth support as Qt version ${Qt5Core_VERSION} is insufficient for that")
 	list(REMOVE_ITEM QT_LIBRARIES Qt5::Bluetooth)
 endif()
 
 # Windows Qt doesn't support BLE at all
-# Mac hasn't been tested, yet - so far it's disabled
 # the rest of them need at least 5.6 to be reasonable but really, you want 5.9.1
-if (BTSUPPORT AND (ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+if (BTSUPPORT AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	if ("${Qt5Core_VERSION}" VERSION_LESS 5.6.0)
 		message(STATUS "Turning off BLE support as Qt version ${Qt5Core_VERSION} is insufficient for that")
 	else()
@@ -266,9 +272,13 @@ if(${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "MobileExecutable")
 		mobile-widgets/qml/kirigami/src/kirigamiplugin.cpp
 		mobile-widgets/qml/kirigami/src/settings.cpp
 		mobile-widgets/qml/kirigami/src/enums.cpp
+		mobile-widgets/qml/kirigami/src/libkirigami/basictheme.cpp
+		mobile-widgets/qml/kirigami/src/libkirigami/kirigamipluginfactory.cpp
+		mobile-widgets/qml/kirigami/src/libkirigami/platformtheme.cpp
 		subsurface-mobile-main.cpp
 		subsurface-mobile-helper.cpp
 	)
+	include_directories(${CMAKE_SOURCE_DIR}/mobile-widgets/qml/kirigami/src/libkirigami)
 	if(NOT ANDROID AND NOT iOS)
 		set(MOBILE_SRC ${MOBILE_SRC} mobile-widgets/qml/kirigami/src/desktopicon.cpp)
 	endif()
@@ -302,6 +312,7 @@ elseif(${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "DesktopExecutable")
 
 	if(FBSUPPORT)
 		set(FACEBOOK_INTEGRATION facebook_integration)
+		add_dependencies(facebook_integration subsurface_generated_ui)
 	endif()
 	target_link_libraries(
 		${SUBSURFACE_TARGET}
@@ -314,6 +325,7 @@ elseif(${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "DesktopExecutable")
 		subsurface_corelib
 		${SUBSURFACE_LINK_LIBRARIES}
 	)
+	add_dependencies(subsurface_desktop_preferences subsurface_generated_ui)
 	add_dependencies(subsurface_statistics subsurface_generated_ui)
 	add_dependencies(subsurface_interface subsurface_generated_ui)
 	add_dependencies(subsurface_profile subsurface_generated_ui)
@@ -343,7 +355,7 @@ target_link_libraries(export-html subsurface_corelib ${SUBSURFACE_LINK_LIBRARIES
 # install Subsurface
 # first some variables with files that need installing
 set(DOCFILES
-	README
+	README.md
 	ReleaseNotes/ReleaseNotes.txt
 	SupportedDivecomputers.txt
 	${CMAKE_BINARY_DIR}/Documentation/user-manual.html
@@ -391,10 +403,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	set(MACDEPLOY_ARGS "${EXTRA_MACDEPLOY_ARGS}-executable=${APP_BUNDLE_DIR}/Contents/MacOS/${SUBSURFACE_TARGET} -always-overwrite")
 	set(RESOURCEDIR ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Resources)
 	set(PLUGINDIR ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/PlugIns)
-	if(NOT NO_MARBLE)
-		install(DIRECTORY marbledata/maps DESTINATION ${RESOURCEDIR}/data)
-		install(DIRECTORY marbledata/bitmaps DESTINATION ${RESOURCEDIR}/data)
-	endif()
 	install(DIRECTORY Documentation/images DESTINATION ${RESOURCEDIR}/share/Documentation)
 	install(FILES ${DOCFILES} DESTINATION ${RESOURCEDIR}/share/Documentation)
 	install(DIRECTORY theme DESTINATION ${RESOURCEDIR})
@@ -407,10 +415,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	if((${SUBSURFACE_TARGET_EXECUTABLE} MATCHES "DesktopExecutable") AND (NOT NO_PRINTING))
 		install(DIRECTORY ${Grantlee5_DIR}/../../grantlee DESTINATION ${PLUGINDIR})
 	endif()
-	if(NO_MARBLE)
-		install(CODE "execute_process(COMMAND mkdir -p ${PLUGINDIR}/geoservices)")
-		install(CODE "execute_process(COMMAND cp ${_qt5Core_install_prefix}/plugins/geoservices/libqtgeoservices_googlemaps.dylib ${PLUGINDIR}/geoservices)")
-	endif()
+	install(CODE "execute_process(COMMAND mkdir -p ${PLUGINDIR}/geoservices)")
+	install(CODE "execute_process(COMMAND cp ${_qt5Core_install_prefix}/plugins/geoservices/libqtgeoservices_googlemaps.dylib ${PLUGINDIR}/geoservices)")
 	# this is a hack - but I don't know how else to find the macdeployqt program if it's not in the PATH
 	string(REPLACE moc macdeployqt MACDEPLOYQT ${QT_MOC_EXECUTABLE})
 	install(CODE "execute_process(COMMAND ${MACDEPLOYQT} ${APP_BUNDLE_DIR} ${MACDEPLOY_ARGS})")
@@ -419,30 +425,29 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	install(CODE "execute_process(COMMAND cp -a ${_qt5Core_install_prefix}/qml/QtQuick.2 ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Resources/qml)")
 	install(CODE "execute_process(COMMAND cp -a ${_qt5Core_install_prefix}/qml/QtLocation ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Resources/qml)")
 	install(CODE "execute_process(COMMAND cp -a ${_qt5Core_install_prefix}/qml/QtPositioning ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Resources/qml)")
-	if(NOT NO_MARBLE)
-		# more hackery - this time for QtXml which is needed by libssrfmarblewidget
-		install(CODE "execute_process(COMMAND cp -a ${_qt5Core_install_prefix}/lib/QtXml.framework ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/Versions/5/Headers)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/Headers)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/QtXml.prl)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/Versions/5/QtXml_debug)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/QtXml_debug)")
-		install(CODE "execute_process(COMMAND rm -rf ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/QtXml_debug.prl)")
-		install(CODE "execute_process(COMMAND install_name_tool -id @executable_path/../Frameworks/QtXml ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/QtXml)")
-		install(CODE "execute_process(COMMAND install_name_tool -change @rpath/QtCore.framework/Versions/5/QtCore @executable_path/../Frameworks/QtCore.framework/QtCore ${CMAKE_BINARY_DIR}/${APP_BUNDLE_DIR}/Contents/Frameworks/QtXml.framework/QtXml)")
-	endif()
 	install(CODE "message(STATUS \"two ERRORS here about libmysqlclient and libpq not found are harmless\")")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+		if(NOT DEFINED OBJCOPY)
+			set(OBJCOPY i686-w64-mingw32.shared-objcopy)
+		endif()
+		find_program(OBJCOPY_FOUND ${OBJCOPY})
+		if (OBJCOPY_FOUND)
+			message(STATUS "Build type is 'RelWithDebInfo'. Creating debug symbols in a separate file.")
+			add_custom_command(TARGET ${SUBSURFACE_TARGET} POST_BUILD
+				COMMAND ${OBJCOPY} --only-keep-debug ${SUBSURFACE_TARGET}.exe ${SUBSURFACE_TARGET}.exe.debug
+				COMMAND ${OBJCOPY} --strip-debug --strip-unneeded ${SUBSURFACE_TARGET}.exe
+				COMMAND ${OBJCOPY} --add-gnu-debuglink=${SUBSURFACE_TARGET}.exe.debug ${SUBSURFACE_TARGET}.exe
+			)
+		endif()
+	endif()
+
 	# Windows bundling rules
 	# We don't have a helpful tool like macdeployqt for Windows, so we hardcode
 	# which libs we need.
 	# "make install", copies everything into a staging area
 	# "make installer", uses makensis to create an installer executable
 	set(WINDOWSSTAGING ${CMAKE_BINARY_DIR}/staging)
-	if(NOT NO_MARBLE)
-		install(DIRECTORY marbledata/maps DESTINATION ${WINDOWSSTAGING}/data)
-		install(DIRECTORY marbledata/bitmaps DESTINATION ${WINDOWSSTAGING}/data)
-	endif()
 	install(DIRECTORY Documentation/images DESTINATION ${WINDOWSSTAGING}/Documentation)
 	install(FILES ${DOCFILES} DESTINATION ${WINDOWSSTAGING}/Documentation)
 	install(DIRECTORY theme DESTINATION ${WINDOWSSTAGING})
@@ -477,9 +482,17 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		DEPENDS fake_install
 	)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	if(NOT NO_MARBLE)
-		install(DIRECTORY marbledata/maps DESTINATION share/subsurface/data)
-		install(DIRECTORY marbledata/bitmaps DESTINATION share/subsurface/data)
+	# the syntax is odd, but this searches for libqtgeoservices_googlemaps.so
+	# in the filesystem below our install-root
+	# different Linux flavors put the plugin in different directories
+	file(GLOB_RECURSE GOOGLEMAPS ${CMAKE_SOURCE_DIR}/../install-root/libqtgeoservices_googlemaps.so)
+	if ("${GOOGLEMAPS}" STREQUAL "")
+		message(STATUS "Cannot find libqtgeoservices_googlemaps.so")
+	else()
+		add_custom_target(link_googlemaps_plugin ALL COMMAND
+			rm -rf ${CMAKE_BINARY_DIR}/geoservices &&
+			mkdir -p ${CMAKE_BINARY_DIR}/geoservices &&
+			ln -sf ${GOOGLEMAPS} ${CMAKE_BINARY_DIR}/geoservices)
 	endif()
 	install(FILES subsurface.debug DESTINATION bin)
 	install(FILES subsurface.desktop DESTINATION share/applications)
@@ -490,12 +503,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	install(DIRECTORY printing_templates DESTINATION share/subsurface)
 	install(FILES ${TRANSLATIONS} DESTINATION share/subsurface/translations)
         install(TARGETS ${SUBSURFACE_TARGET} DESTINATION bin)
-	if(DEFINED LIBMARBLEDEVEL)
-		install(
-			CODE "file(GLOB SSRFMARBLE_SHLIBS \"${LIBMARBLEDEVEL}/lib/libssrfmarblewidget.so*\")"
-			CODE "file(INSTALL \${SSRFMARBLE_SHLIBS} DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)"
-		)
-	endif()
 endif()
 
 if (MAKE_TESTS)

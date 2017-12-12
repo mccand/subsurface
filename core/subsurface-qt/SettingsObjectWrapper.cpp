@@ -29,6 +29,11 @@ QString DiveComputerSettings::dc_device() const
 	return prefs.dive_computer.device;
 }
 
+QString DiveComputerSettings::dc_device_name() const
+{
+	return prefs.dive_computer.device_name;
+}
+
 int DiveComputerSettings::downloadMode() const
 {
 	return prefs.dive_computer.download_mode;
@@ -42,7 +47,7 @@ void DiveComputerSettings::setVendor(const QString& vendor)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("dive_computer_vendor", vendor);
-	free(prefs.dive_computer.vendor);
+	free((void *)prefs.dive_computer.vendor);
 	prefs.dive_computer.vendor = copy_string(qPrintable(vendor));
 }
 
@@ -54,7 +59,7 @@ void DiveComputerSettings::setProduct(const QString& product)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("dive_computer_product", product);
-	free(prefs.dive_computer.product);
+	free((void *)prefs.dive_computer.product);
 	prefs.dive_computer.product = copy_string(qPrintable(product));
 }
 
@@ -66,8 +71,20 @@ void DiveComputerSettings::setDevice(const QString& device)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("dive_computer_device", device);
-	free(prefs.dive_computer.device);
+	free((void *)prefs.dive_computer.device);
 	prefs.dive_computer.device = copy_string(qPrintable(device));
+}
+
+void DiveComputerSettings::setDeviceName(const QString& device_name)
+{
+	if (device_name == prefs.dive_computer.device_name)
+		return;
+
+	QSettings s;
+	s.beginGroup(group);
+	s.setValue("dive_computer_device_name", device_name);
+	free((void *)prefs.dive_computer.device_name);
+	prefs.dive_computer.device_name = copy_string(qPrintable(device_name));
 }
 
 void DiveComputerSettings::setDownloadMode(int mode)
@@ -127,7 +144,7 @@ void UpdateManagerSettings::setLastVersionUsed(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("LastVersionUsed", value);
-	free (prefs.update_manager.last_version_used);
+	free((void *)prefs.update_manager.last_version_used);
 	prefs.update_manager.last_version_used = copy_string(qPrintable(value));
 	emit lastVersionUsedChanged(value);
 }
@@ -140,7 +157,7 @@ void UpdateManagerSettings::setNextCheck(const QDate& date)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("NextCheck", date);
-	free (prefs.update_manager.next_check);
+	free((void *)prefs.update_manager.next_check);
 	prefs.update_manager.next_check = copy_string(qPrintable(date.toString("dd/MM/yyyy")));
 	emit nextCheckChanged(date);
 }
@@ -152,17 +169,17 @@ PartialPressureGasSettings::PartialPressureGasSettings(QObject* parent):
 
 }
 
-short PartialPressureGasSettings::showPo2() const
+bool PartialPressureGasSettings::showPo2() const
 {
 	return prefs.pp_graphs.po2;
 }
 
-short PartialPressureGasSettings::showPn2() const
+bool PartialPressureGasSettings::showPn2() const
 {
 	return prefs.pp_graphs.pn2;
 }
 
-short PartialPressureGasSettings::showPhe() const
+bool PartialPressureGasSettings::showPhe() const
 {
 	return prefs.pp_graphs.phe;
 }
@@ -188,7 +205,7 @@ double PartialPressureGasSettings::pheThreshold() const
 	return prefs.pp_graphs.phe_threshold;
 }
 
-void PartialPressureGasSettings::setShowPo2(short value)
+void PartialPressureGasSettings::setShowPo2(bool value)
 {
 	if (value == prefs.pp_graphs.po2)
 		return;
@@ -200,7 +217,7 @@ void PartialPressureGasSettings::setShowPo2(short value)
 	emit showPo2Changed(value);
 }
 
-void PartialPressureGasSettings::setShowPn2(short value)
+void PartialPressureGasSettings::setShowPn2(bool value)
 {
 	if (value == prefs.pp_graphs.pn2)
 		return;
@@ -212,7 +229,7 @@ void PartialPressureGasSettings::setShowPn2(short value)
 	emit showPn2Changed(value);
 }
 
-void PartialPressureGasSettings::setShowPhe(short value)
+void PartialPressureGasSettings::setShowPhe(bool value)
 {
 	if (value == prefs.pp_graphs.phe)
 		return;
@@ -296,7 +313,7 @@ void TechnicalDetailsSettings::setDecoMode(deco_mode d)
 	emit decoModeChanged(d);
 }
 
-double TechnicalDetailsSettings:: modp02() const
+double TechnicalDetailsSettings:: modpO2() const
 {
 	return prefs.modpO2;
 }
@@ -396,11 +413,6 @@ bool TechnicalDetailsSettings::showSac() const
 	return prefs.show_sac;
 }
 
-bool TechnicalDetailsSettings::gfLowAtMaxDepth() const
-{
-	return prefs.gf_low_at_maxdepth;
-}
-
 bool TechnicalDetailsSettings::displayUnusedTanks() const
 {
 	return prefs.display_unused_tanks;
@@ -421,7 +433,7 @@ bool TechnicalDetailsSettings::showPicturesInProfile() const
 	return prefs.show_pictures_in_profile;
 }
 
-void TechnicalDetailsSettings::setModp02(double value)
+void TechnicalDetailsSettings::setModpO2(double value)
 {
 	if (value == prefs.modpO2)
 		return;
@@ -561,7 +573,7 @@ void TechnicalDetailsSettings::setGflow(int value)
 	s.beginGroup(group);
 	s.setValue("gflow", value);
 	prefs.gflow = value;
-	set_gf(prefs.gflow, prefs.gfhigh, prefs.gf_low_at_maxdepth);
+	set_gf(prefs.gflow, prefs.gfhigh);
 	emit gflowChanged(value);
 }
 
@@ -574,7 +586,7 @@ void TechnicalDetailsSettings::setGfhigh(int value)
 	s.beginGroup(group);
 	s.setValue("gfhigh", value);
 	prefs.gfhigh = value;
-	set_gf(prefs.gflow, prefs.gfhigh, prefs.gf_low_at_maxdepth);
+	set_gf(prefs.gflow, prefs.gfhigh);
 	emit gfhighChanged(value);
 }
 
@@ -684,18 +696,6 @@ void TechnicalDetailsSettings::setShowSac(bool value)
 	emit showSacChanged(value);
 }
 
-void TechnicalDetailsSettings::setGfLowAtMaxDepth(bool value)
-{
-	if (value == prefs.gf_low_at_maxdepth)
-		return;
-	QSettings s;
-	s.beginGroup(group);
-	s.setValue("gf_low_at_maxdepth", value);
-	prefs.gf_low_at_maxdepth = value;
-	set_gf(prefs.gflow, prefs.gfhigh, prefs.gf_low_at_maxdepth);
-	emit gfLowAtMaxDepthChanged(value);
-}
-
 void TechnicalDetailsSettings::setDisplayUnusedTanks(bool value)
 {
 	if (value == prefs.display_unused_tanks)
@@ -748,6 +748,7 @@ void FacebookSettings::setAccessToken (const QString& value)
 	s.beginGroup(subgroup);
 	s.setValue("ConnectToken", value);
 #endif
+	free((void *)prefs.facebook.access_token);
 	prefs.facebook.access_token = copy_string(qPrintable(value));
 	emit accessTokenChanged(value);
 }
@@ -762,6 +763,7 @@ void FacebookSettings::setUserId(const QString& value)
 	s.beginGroup(subgroup);
 	s.setValue("UserId", value);
 #endif
+	free((void *)prefs.facebook.user_id);
 	prefs.facebook.user_id = copy_string(qPrintable(value));
 	emit userIdChanged(value);
 }
@@ -776,6 +778,7 @@ void FacebookSettings::setAlbumId(const QString& value)
 	s.beginGroup(subgroup);
 	s.setValue("AlbumId", value);
 #endif
+	free((void *)prefs.facebook.album_id);
 	prefs.facebook.album_id = copy_string(qPrintable(value));
 	emit albumIdChanged(value);
 }
@@ -785,21 +788,6 @@ GeocodingPreferences::GeocodingPreferences(QObject *parent) :
 	QObject(parent)
 {
 
-}
-
-bool GeocodingPreferences::enableGeocoding() const
-{
-	return prefs.geocoding.enable_geocoding;
-}
-
-bool GeocodingPreferences::parseDiveWithoutGps() const
-{
-	return prefs.geocoding.parse_dive_without_gps;
-}
-
-bool GeocodingPreferences::tagExistingDives() const
-{
-	return prefs.geocoding.tag_existing_dives;
 }
 
 taxonomy_category GeocodingPreferences::firstTaxonomyCategory() const
@@ -815,39 +803,6 @@ taxonomy_category GeocodingPreferences::secondTaxonomyCategory() const
 taxonomy_category GeocodingPreferences::thirdTaxonomyCategory() const
 {
 	return prefs.geocoding.category[2];
-}
-
-void GeocodingPreferences::setEnableGeocoding(bool value)
-{
-	if (value == prefs.geocoding.enable_geocoding)
-		return;
-	QSettings s;
-	s.beginGroup(group);
-	s.setValue("enable_geocoding", value);
-	prefs.geocoding.enable_geocoding = value;
-	emit enableGeocodingChanged(value);
-}
-
-void GeocodingPreferences::setParseDiveWithoutGps(bool value)
-{
-	if (value == prefs.geocoding.parse_dive_without_gps)
-		return;
-	QSettings s;
-	s.beginGroup(group);
-	s.setValue("parse_dives_without_gps", value);
-	prefs.geocoding.parse_dive_without_gps = value;
-	emit parseDiveWithoutGpsChanged(value);
-}
-
-void GeocodingPreferences::setTagExistingDives(bool value)
-{
-	if (value == prefs.geocoding.tag_existing_dives)
-		return;
-	QSettings s;
-	s.beginGroup(group);
-	s.setValue("tag_existing_dives", value);
-	prefs.geocoding.tag_existing_dives = value;
-	emit tagExistingDivesChanged(value);
 }
 
 void GeocodingPreferences::setFirstTaxonomyCategory(taxonomy_category value)
@@ -936,8 +891,8 @@ void ProxySettings::setHost(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("proxy_host", value);
-	free(prefs.proxy_host);
-	prefs.proxy_host = copy_string(qPrintable(value));;
+	free((void *)prefs.proxy_host);
+	prefs.proxy_host = copy_string(qPrintable(value));
 	emit hostChanged(value);
 }
 
@@ -970,7 +925,7 @@ void ProxySettings::setUser(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("proxy_user", value);
-	free(prefs.proxy_user);
+	free((void *)prefs.proxy_user);
 	prefs.proxy_user = copy_string(qPrintable(value));
 	emit userChanged(value);
 }
@@ -982,7 +937,7 @@ void ProxySettings::setPass(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("proxy_pass", value);
-	free(prefs.proxy_pass);
+	free((void *)prefs.proxy_pass);
 	prefs.proxy_pass = copy_string(qPrintable(value));
 	emit passChanged(value);
 }
@@ -1055,7 +1010,7 @@ void CloudStorageSettings::setPassword(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("password", value);
-	free(prefs.cloud_storage_password);
+	free((void *)prefs.cloud_storage_password);
 	prefs.cloud_storage_password = copy_string(qPrintable(value));
 	emit passwordChanged(value);
 }
@@ -1065,7 +1020,7 @@ void CloudStorageSettings::setNewPassword(const QString& value)
 	if (value == prefs.cloud_storage_newpassword)
 		return;
 	/*TODO: This looks like wrong, but 'new password' is not saved on disk, why it's on prefs? */
-	free(prefs.cloud_storage_newpassword);
+	free((void *)prefs.cloud_storage_newpassword);
 	prefs.cloud_storage_newpassword = copy_string(qPrintable(value));
 	emit newPasswordChanged(value);
 }
@@ -1077,7 +1032,7 @@ void CloudStorageSettings::setEmail(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("email", value);
-	free(prefs.cloud_storage_email);
+	free((void *)prefs.cloud_storage_email);
 	prefs.cloud_storage_email = copy_string(qPrintable(value));
 	emit emailChanged(value);
 }
@@ -1089,7 +1044,7 @@ void CloudStorageSettings::setUserId(const QString& value)
 	//WARNING: UserId is stored outside of any group, but it belongs to Cloud Storage.
 	QSettings s;
 	s.setValue("subsurface_webservice_uid", value);
-	free(prefs.userid);
+	free((void *)prefs.userid);
 	prefs.userid = copy_string(qPrintable(value));
 	emit userIdChanged(value);
 }
@@ -1099,7 +1054,7 @@ void CloudStorageSettings::setEmailEncoded(const QString& value)
 	if (value == prefs.cloud_storage_email_encoded)
 		return;
 	/*TODO: This looks like wrong, but 'email encoded' is not saved on disk, why it's on prefs? */
-	free(prefs.cloud_storage_email_encoded);
+	free((void *)prefs.cloud_storage_email_encoded);
 	prefs.cloud_storage_email_encoded = copy_string(qPrintable(value));
 	emit emailEncodedChanged(value);
 }
@@ -1137,7 +1092,7 @@ void CloudStorageSettings::setBackgroundSync(bool value)
 	emit backgroundSyncChanged(value);
 }
 
-void CloudStorageSettings::setSaveUserIdLocal(short int value)
+void CloudStorageSettings::setSaveUserIdLocal(bool value)
 {
 	//TODO: this is not saved on disk?
 	if (value == prefs.save_userid_local)
@@ -1146,7 +1101,7 @@ void CloudStorageSettings::setSaveUserIdLocal(short int value)
 	emit saveUserIdLocalChanged(value);
 }
 
-short int CloudStorageSettings::saveUserIdLocal() const
+bool CloudStorageSettings::saveUserIdLocal() const
 {
 	return prefs.save_userid_local;
 }
@@ -1158,8 +1113,8 @@ void CloudStorageSettings::setBaseUrl(const QString& value)
 
 	// dont free data segment.
 	if (prefs.cloud_base_url != default_prefs.cloud_base_url) {
-		free((void*)prefs.cloud_base_url);
-		free((void*)prefs.cloud_git_url);
+		free((void *)prefs.cloud_base_url);
+		free((void *)prefs.cloud_git_url);
 	}
 	QSettings s;
 	s.beginGroup(group);
@@ -1212,6 +1167,11 @@ bool DivePlannerSettings::displayDuration() const
 bool DivePlannerSettings::displayTransitions() const
 {
 	return prefs.display_transitions;
+}
+
+bool DivePlannerSettings::displayVariations() const
+{
+	return prefs.display_variations;
 }
 
 bool DivePlannerSettings::doo2breaks() const
@@ -1366,6 +1326,18 @@ void DivePlannerSettings::setDisplayTransitions(bool value)
 	s.setValue("display_transitions", value);
 	prefs.display_transitions = value;
 	emit displayTransitionsChanged(value);
+}
+
+void DivePlannerSettings::setDisplayVariations(bool value)
+{
+	if (value == prefs.display_variations)
+		return;
+
+	QSettings s;
+	s.beginGroup(group);
+	s.setValue("display_variations", value);
+	prefs.display_variations = value;
+	emit displayVariationsChanged(value);
 }
 
 void DivePlannerSettings::setDoo2breaks(bool value)
@@ -1631,6 +1603,11 @@ int UnitsSettings::durationUnits() const
 	return prefs.units.duration_units;
 }
 
+bool UnitsSettings::showUnitsTable() const
+{
+	return prefs.units.show_units_table;
+}
+
 QString UnitsSettings::unitSystem() const
 {
 	return prefs.unit_system == METRIC ? QStringLiteral("metric")
@@ -1651,7 +1628,7 @@ void UnitsSettings::setLength(int value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("length", value);
-	prefs.units.length = (units::LENGHT) value;
+	prefs.units.length = (units::LENGTH) value;
 	emit lengthChanged(value);
 }
 
@@ -1719,6 +1696,17 @@ void UnitsSettings::setDurationUnits(int value)
 	s.setValue("duration_units", value);
 	prefs.units.duration_units = (units::DURATION) value;
 	emit durationUnitChanged(value);
+}
+
+void UnitsSettings::setShowUnitsTable(bool value)
+{
+	if (value == prefs.units.show_units_table)
+		return;
+	QSettings s;
+	s.beginGroup(group);
+	s.setValue("show_units_table", value);
+	prefs.units.show_units_table = value;
+	emit showUnitsTableChanged(value);
 }
 
 void UnitsSettings::setCoordinatesTraditional(bool value)
@@ -1807,6 +1795,7 @@ void GeneralSettingsObjectWrapper::setDefaultFilename(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("default_filename", value);
+	free((void *)prefs.default_filename);
 	prefs.default_filename = copy_string(qPrintable(value));
 	emit defaultFilenameChanged(value);
 }
@@ -1819,6 +1808,7 @@ void GeneralSettingsObjectWrapper::setDefaultCylinder(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("default_cylinder", value);
+	free((void *)prefs.default_cylinder);
 	prefs.default_cylinder = copy_string(qPrintable(value));
 	emit defaultCylinderChanged(value);
 }
@@ -1905,7 +1895,7 @@ double DisplaySettingsObjectWrapper::fontSize() const
 	return prefs.font_size;
 }
 
-short DisplaySettingsObjectWrapper::displayInvalidDives() const
+bool DisplaySettingsObjectWrapper::displayInvalidDives() const
 {
 	return prefs.display_invalid_dives;
 }
@@ -1938,6 +1928,7 @@ void DisplaySettingsObjectWrapper::setFontSize(double value)
 		return;
 
 	QSettings s;
+	s.beginGroup(group);
 	s.setValue("font_size", value);
 	prefs.font_size = value;
 	QFont defaultFont = qApp->font();
@@ -1946,7 +1937,7 @@ void DisplaySettingsObjectWrapper::setFontSize(double value)
 	emit fontSizeChanged(value);
 }
 
-void DisplaySettingsObjectWrapper::setDisplayInvalidDives(short value)
+void DisplaySettingsObjectWrapper::setDisplayInvalidDives(bool value)
 {
 	if (value == prefs.display_invalid_dives)
 		return;
@@ -2010,7 +2001,7 @@ void LanguageSettingsObjectWrapper::setUseSystemLanguage(bool value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("UseSystemLanguage", value);
-	prefs.locale.use_system_language = copy_string(qPrintable(value));
+	prefs.locale.use_system_language = value;
 	emit useSystemLanguageChanged(value);
 }
 
@@ -2021,6 +2012,7 @@ void  LanguageSettingsObjectWrapper::setLangLocale(const QString &value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("UiLangLocale", value);
+	free((void *)prefs.locale.lang_locale);
 	prefs.locale.lang_locale = copy_string(qPrintable(value));
 	emit langLocaleChanged(value);
 }
@@ -2032,6 +2024,7 @@ void  LanguageSettingsObjectWrapper::setLanguage(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("UiLanguage", value);
+	free((void *)prefs.locale.language);
 	prefs.locale.language = copy_string(qPrintable(value));
 	emit languageChanged(value);
 }
@@ -2043,7 +2036,8 @@ void  LanguageSettingsObjectWrapper::setTimeFormat(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("time_format", value);
-	prefs.time_format = copy_string(qPrintable(value));;
+	free((void *)prefs.time_format);
+	prefs.time_format = copy_string(qPrintable(value));
 	emit timeFormatChanged(value);
 }
 
@@ -2055,7 +2049,8 @@ void  LanguageSettingsObjectWrapper::setDateFormat(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("date_format", value);
-	prefs.date_format = copy_string(qPrintable(value));;
+	free((void *)prefs.date_format);
+	prefs.date_format = copy_string(qPrintable(value));
 	emit dateFormatChanged(value);
 }
 
@@ -2067,7 +2062,8 @@ void  LanguageSettingsObjectWrapper::setDateFormatShort(const QString& value)
 	QSettings s;
 	s.beginGroup(group);
 	s.setValue("date_format_short", value);
-	prefs.date_format_short = copy_string(qPrintable(value));;
+	free((void *)prefs.date_format_short);
+	prefs.date_format_short = copy_string(qPrintable(value));
 	emit dateFormatShortChanged(value);
 }
 
@@ -2197,6 +2193,7 @@ void SettingsObjectWrapper::load()
 	}
 	GET_UNIT("vertical_speed_time", vertical_speed_time, units::MINUTES, units::SECONDS);
 	GET_UNIT3("duration_units", duration_units, units::MIXED, units::ALWAYS_HOURS, units::DURATION);
+	GET_UNIT_BOOL("show_units_table", show_units_table);
 	GET_BOOL("coordinates", coordinates_traditional);
 	s.endGroup();
 	s.beginGroup("TecDetails");
@@ -2227,7 +2224,7 @@ void SettingsObjectWrapper::load()
 	GET_BOOL("show_ccr_setpoint",show_ccr_setpoint);
 	GET_BOOL("show_ccr_sensors",show_ccr_sensors);
 	GET_BOOL("zoomed_plot", zoomed_plot);
-	set_gf(prefs.gflow, prefs.gfhigh, prefs.gf_low_at_maxdepth);
+	set_gf(prefs.gflow, prefs.gfhigh);
 	set_vpmb_conservatism(prefs.vpmb_conservatism);
 	GET_BOOL("show_sac", show_sac);
 	GET_BOOL("display_unused_tanks", display_unused_tanks);
@@ -2275,7 +2272,7 @@ void SettingsObjectWrapper::load()
 	}
 	defaultFont.setPointSizeF(prefs.font_size);
 	qApp->setFont(defaultFont);
-	GET_INT("displayinvalid", display_invalid_dives);
+	GET_BOOL("displayinvalid", display_invalid_dives);
 	s.endGroup();
 
 	s.beginGroup("Animations");
@@ -2318,10 +2315,6 @@ void SettingsObjectWrapper::load()
 	// GeoManagement
 	s.beginGroup("geocoding");
 
-	GET_BOOL("enable_geocoding", geocoding.enable_geocoding);
-	GET_BOOL("parse_dives_without_gps", geocoding.parse_dive_without_gps);
-	GET_BOOL("tag_existing_dives", geocoding.tag_existing_dives);
-
 	GET_ENUM("cat0", taxonomy_category, geocoding.category[0]);
 	GET_ENUM("cat1", taxonomy_category, geocoding.category[1]);
 	GET_ENUM("cat2", taxonomy_category, geocoding.category[2]);
@@ -2339,6 +2332,7 @@ void SettingsObjectWrapper::load()
 	GET_BOOL("display_duration", display_duration);
 	GET_BOOL("display_runtime", display_runtime);
 	GET_BOOL("display_transitions", display_transitions);
+	GET_BOOL("display_variations", display_variations);
 	GET_BOOL("safetystop", safetystop);
 	GET_BOOL("doo2breaks", doo2breaks);
 	GET_BOOL("switch_at_req_stop",switch_at_req_stop);
@@ -2366,6 +2360,7 @@ void SettingsObjectWrapper::load()
 	GET_TXT("dive_computer_vendor",dive_computer.vendor);
 	GET_TXT("dive_computer_product", dive_computer.product);
 	GET_TXT("dive_computer_device", dive_computer.device);
+	GET_TXT("dive_computer_device_name", dive_computer.device_name);
 	GET_INT("dive_computer_download_mode", dive_computer.download_mode);
 	s.endGroup();
 
@@ -2397,6 +2392,7 @@ void SettingsObjectWrapper::sync()
 	s.setValue("display_duration", prefs.display_duration);
 	s.setValue("display_runtime", prefs.display_runtime);
 	s.setValue("display_transitions", prefs.display_transitions);
+	s.setValue("display_variations", prefs.display_variations);
 	s.setValue("safetystop", prefs.safetystop);
 	s.setValue("reserve_gas", prefs.reserve_gas);
 	s.setValue("ascrate75", prefs.ascrate75);

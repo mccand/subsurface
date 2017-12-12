@@ -326,7 +326,7 @@ void OstcFirmwareCheck::upgradeFirmware()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append(saveFileName);
 	storeFirmware = QFileDialog::getSaveFileName(parent, tr("Save the downloaded firmware as"),
-						     filename, tr("Firmware files (*.hex *.bin)"));
+						     filename, tr("Firmware files") + " (*.hex *.bin)");
 	if (storeFirmware.isEmpty())
 		return;
 
@@ -904,15 +904,25 @@ void ConfigureDiveComputerDialog::configError(QString err)
 
 void ConfigureDiveComputerDialog::getDeviceData()
 {
-	device_data.devname = strdup(ui.device->currentText().toUtf8().data());
+#ifdef BT_SUPPORT
+	QString device = ui.bluetoothMode && btDeviceSelectionDialog ?
+		btDeviceSelectionDialog->getSelectedDeviceAddress() : ui.device->currentText();
+#else
+	QString device = ui.device->currentText();
+#endif
+	device_data.devname = strdup(device.toUtf8().data());
 	device_data.vendor = strdup(selected_vendor.toUtf8().data());
 	device_data.product = strdup(selected_product.toUtf8().data());
 
-	device_data.descriptor = descriptorLookup[selected_vendor + selected_product];
+	device_data.descriptor = descriptorLookup.value(selected_vendor + selected_product);
 	device_data.deviceid = device_data.diveid = 0;
 
 	auto dc = SettingsObjectWrapper::instance()->dive_computer_settings;
 	dc->setDevice(device_data.devname);
+#ifdef BT_SUPPORT
+	if (ui.bluetoothMode && btDeviceSelectionDialog)
+		dc->setDeviceName(btDeviceSelectionDialog->getSelectedDeviceName());
+#endif
 }
 
 void ConfigureDiveComputerDialog::on_cancel_clicked()
@@ -1362,7 +1372,7 @@ void ConfigureDiveComputerDialog::on_backupButton_clicked()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append("Backup.xml");
 	QString backupPath = QFileDialog::getSaveFileName(this, tr("Backup dive computer settings"),
-							  filename, tr("Backup files (*.xml)"));
+							  filename, tr("Backup files") + " (*.xml)");
 	if (!backupPath.isEmpty()) {
 		populateDeviceDetails();
 		if (!config->saveXMLBackup(backupPath, deviceDetails, &device_data)) {
@@ -1383,7 +1393,7 @@ void ConfigureDiveComputerDialog::on_restoreBackupButton_clicked()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append("Backup.xml");
 	QString restorePath = QFileDialog::getOpenFileName(this, tr("Restore dive computer settings"),
-							   filename, tr("Backup files (*.xml)"));
+							   filename, tr("Backup files") + " (*.xml)");
 	if (!restorePath.isEmpty()) {
 		// Fw update is no longer a option, needs to be done on a untouched device
 		ui.updateFirmwareButton->setEnabled(false);
@@ -1405,7 +1415,7 @@ void ConfigureDiveComputerDialog::on_updateFirmwareButton_clicked()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath();
 	QString firmwarePath = QFileDialog::getOpenFileName(this, tr("Select firmware file"),
-							    filename, tr("All files (*.*)"));
+							    filename, tr("All files") + " (*.*)");
 	if (!firmwarePath.isEmpty()) {
 		ui.progressBar->setValue(0);
 		ui.progressBar->setFormat("%p%");
@@ -1466,7 +1476,7 @@ void ConfigureDiveComputerDialog::pickLogFile()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append("subsurface.log");
 	logFile = QFileDialog::getSaveFileName(this, tr("Choose file for dive computer download logfile"),
-					       filename, tr("Log files (*.log)"));
+					       filename, tr("Log files") + " (*.log)");
 	if (!logFile.isEmpty()) {
 		free(logfile_name);
 		logfile_name = strdup(logFile.toUtf8().data());
@@ -1488,7 +1498,7 @@ void ConfigureDiveComputerDialog::selectRemoteBluetoothDevice()
 void ConfigureDiveComputerDialog::bluetoothSelectionDialogIsFinished(int result)
 {
 	if (result == QDialog::Accepted) {
-		ui.device->setCurrentText(btDeviceSelectionDialog->getSelectedDeviceAddress());
+		ui.device->setCurrentText(btDeviceSelectionDialog->getSelectedDeviceText());
 		device_data.bluetooth_mode = true;
 
 		ui.progressBar->setFormat("Connecting to device...");

@@ -16,6 +16,7 @@
 
 #include <libdivecomputer/version.h>
 #include "libdivecomputer.h"
+#include "core/version.h"
 
 #if !defined(SSRF_LIBDC_VERSION) || SSRF_LIBDC_VERSION < 2
 #pragma message "Subsurface requires a reasonably current version of the Subsurface-branch"
@@ -40,7 +41,7 @@ const char *progress_bar_text = "";
 void (*progress_callback)(const char *text) = NULL;
 double progress_bar_fraction = 0.0;
 
-static int stoptime, stopdepth, ndl, po2, cns;
+static int stoptime, stopdepth, ndl, po2, cns, heartbeat, bearing;
 static bool in_deco, first_temp_is_air;
 static int current_gas_index;
 
@@ -331,22 +332,22 @@ sample_cb(dc_sample_type_t type, dc_sample_value_t value, void *userdata)
 	case DC_SAMPLE_TIME:
 		nsensor = 0;
 
-		// The previous sample gets some sticky values
-		// that may have been around from before, even
-		// if there was no new data
-		if (sample) {
-			sample->in_deco = in_deco;
-			sample->ndl.seconds = ndl;
-			sample->stoptime.seconds = stoptime;
-			sample->stopdepth.mm = stopdepth;
-			sample->setpoint.mbar = po2;
-			sample->cns = cns;
-		}
 		// Create a new sample.
 		// Mark depth as negative
 		sample = prepare_sample(dc);
 		sample->time.seconds = value.time;
 		sample->depth.mm = -1;
+		// The current sample gets some sticky values
+		// that may have been around from before, these
+		// values will be overwritten by new data if available
+		sample->in_deco = in_deco;
+		sample->ndl.seconds = ndl;
+		sample->stoptime.seconds = stoptime;
+		sample->stopdepth.mm = stopdepth;
+		sample->setpoint.mbar = po2;
+		sample->cns = cns;
+		sample->heartbeat = heartbeat;
+		sample->bearing.degrees = bearing;
 		finish_sample(dc);
 		break;
 	case DC_SAMPLE_DEPTH:
@@ -368,10 +369,10 @@ sample_cb(dc_sample_type_t type, dc_sample_value_t value, void *userdata)
 		sample->rbt.seconds = (!strncasecmp(dc->model, "suunto", 6)) ? value.rbt : value.rbt * 60;
 		break;
 	case DC_SAMPLE_HEARTBEAT:
-		sample->heartbeat = value.heartbeat;
+		sample->heartbeat = heartbeat = value.heartbeat;
 		break;
 	case DC_SAMPLE_BEARING:
-		sample->bearing.degrees = value.bearing;
+		sample->bearing.degrees = bearing = value.bearing;
 		break;
 #ifdef DEBUG_DC_VENDOR
 	case DC_SAMPLE_VENDOR:
@@ -761,7 +762,8 @@ static int dive_cb(const unsigned char *data, unsigned int size,
 	struct dive *dive = NULL;
 
 	/* reset static data, that is only valid per dive */
-	ndl = stoptime = stopdepth = po2 = 0;
+	stoptime = stopdepth = po2 = cns = heartbeat = 0;
+	ndl = bearing = -1;
 	in_deco = false;
 	current_gas_index = -1;
 
@@ -1086,6 +1088,8 @@ const char *do_libdivecomputer_import(device_data_t *data)
 	if (fp) {
 		dc_context_set_loglevel(data->context, DC_LOGLEVEL_ALL);
 		dc_context_set_logfunc(data->context, logfunc, fp);
+		fprintf(data->libdc_logfile, "Subsurface: v%s, ", subsurface_git_version());
+		fprintf(data->libdc_logfile, "built with libdivecomputer v%s\n", dc_version(NULL));
 	}
 
 	err = translate("gettextFromC", "Unable to open %s %s (%s)");
@@ -1113,7 +1117,7 @@ const char *do_libdivecomputer_import(device_data_t *data)
 		rc = dc_device_open(&data->device, data->context, data->descriptor, data->devname);
 		INFO(0, "dc_deveice_open error value of %d", rc);
 		if (rc != DC_STATUS_SUCCESS && subsurface_access(data->devname, R_OK | W_OK) != 0)
-			err = translate("gettextFromC", "Insufficient privileges to open the device %s %s (%s)");
+			err = translate("gettextFromC", "Error opening the device %s %s (%s).\nIn most cases, in order to debug this issue, a libdivecomputer logfile will be useful.\nYou can create this logfile by selecting the corresponding checkbox in the download dialog.");
 	}
 
 	if (rc == DC_STATUS_SUCCESS) {
@@ -1121,6 +1125,8 @@ const char *do_libdivecomputer_import(device_data_t *data)
 		/* TODO: Show the logfile to the user on error. */
 		dc_device_close(data->device);
 		data->device = NULL;
+		if (!downloadTable.nr)
+			dev_info(data, translate("gettextFromC", "No new dives downloaded from dive computer"));
 	}
 
 	dc_context_free(data->context);

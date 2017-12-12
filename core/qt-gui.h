@@ -7,10 +7,10 @@ void init_ui();
 
 void run_ui();
 void exit_ui();
+void set_non_bt_addresses();
 
 #if defined(SUBSURFACE_MOBILE)
 #include <QQuickWindow>
-extern QObject *qqWindowObject;
 #endif
 
 #endif // QT_GUI_H

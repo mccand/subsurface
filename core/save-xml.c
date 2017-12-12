@@ -159,6 +159,8 @@ static void save_cylinder_info(struct membuffer *b, struct dive *dive)
 		put_pressure(b, cylinder->end, " end='", " bar'");
 		if (cylinder->cylinder_use != OC_GAS)
 			show_utf8(b, cylinderuse_text[cylinder->cylinder_use], " use='", "'", 1);
+		if (cylinder->depth.mm != 0)
+			put_milli(b, " depth='", cylinder->depth.mm, " m'");
 		put_format(b, " />\n");
 	}
 }
@@ -220,7 +222,7 @@ static void save_sample(struct membuffer *b, struct sample *sample, struct sampl
 				put_pressure(b, p, " o2pressure='", " bar'");
 				continue;
 			}
-			put_pressure(b, sample->pressure[0], " pressure='", " bar'");
+			put_pressure(b, p, " pressure='", " bar'");
 			if (sensor != old->sensor[0]) {
 				put_format(b, " sensor='%d'", sensor);
 				old->sensor[0] = sensor;
@@ -282,8 +284,14 @@ static void save_sample(struct membuffer *b, struct sample *sample, struct sampl
 		put_milli(b, " po2='", sample->setpoint.mbar, " bar'");
 		old->setpoint = sample->setpoint;
 	}
-	show_index(b, sample->heartbeat, "heartbeat='", "'");
-	show_index(b, sample->bearing.degrees, "bearing='", "'");
+	if (sample->heartbeat != old->heartbeat) {
+		show_index(b, sample->heartbeat, "heartbeat='", "'");
+		old->heartbeat = sample->heartbeat;
+	}
+	if (sample->bearing.degrees != old->bearing.degrees) {
+		show_index(b, sample->bearing.degrees, "bearing='", "'");
+		old->bearing.degrees = sample->bearing.degrees;
+	}
 	put_format(b, " />\n");
 }
 
@@ -348,8 +356,9 @@ static void show_date(struct membuffer *b, timestamp_t when)
 
 	put_format(b, " date='%04u-%02u-%02u'",
 		   tm.tm_year, tm.tm_mon + 1, tm.tm_mday);
-	put_format(b, " time='%02u:%02u:%02u'",
-		   tm.tm_hour, tm.tm_min, tm.tm_sec);
+	if (tm.tm_hour || tm.tm_min || tm.tm_sec)
+		put_format(b, " time='%02u:%02u:%02u'",
+			   tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
 static void save_samples(struct membuffer *b, struct dive *dive, struct divecomputer *dc)
@@ -357,7 +366,7 @@ static void save_samples(struct membuffer *b, struct dive *dive, struct divecomp
 	int nr;
 	int o2sensor;
 	struct sample *s;
-	struct sample dummy = {};
+	struct sample dummy = { .bearing.degrees = -1, .ndl.seconds = -1 };
 
 	/* Set up default pressure sensor indexes */
 	o2sensor = legacy_format_o2pressures(dive, dc);
@@ -451,8 +460,11 @@ void save_one_dive_to_mb(struct membuffer *b, struct dive *dive)
 			fprintf(stderr, "removed reference to non-existant dive site with uuid %08x\n", dive->dive_site_uuid);
 	}
 	show_date(b, dive->when);
-	put_format(b, " duration='%u:%02u min'>\n",
-		   FRACTION(dive->dc.duration.seconds, 60));
+	if (dive->dc.duration.seconds > 0)
+		put_format(b, " duration='%u:%02u min'>\n",
+			   FRACTION(dive->dc.duration.seconds, 60));
+	else
+		put_format(b, ">\n");
 	save_overview(b, dive);
 	save_cylinder_info(b, dive);
 	save_weightsystem_info(b, dive);
@@ -561,7 +573,7 @@ void save_dives_buffer(struct membuffer *b, const bool select_only)
 		int j;
 		struct dive *d;
 		struct dive_site *ds = get_dive_site(i);
-		if (dive_site_is_empty(ds)) {
+		if (dive_site_is_empty(ds) || !is_dive_site_used(ds->uuid, false)) {
 			for_each_dive(j, d) {
 				if (d->dive_site_uuid == ds->uuid)
 					d->dive_site_uuid = 0;

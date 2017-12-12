@@ -24,8 +24,6 @@ namespace DownloadFromDcGlobal {
 DownloadFromDCWidget::DownloadFromDCWidget(QWidget *parent, Qt::WindowFlags f) : QDialog(parent, f),
 	downloading(false),
 	previousLast(0),
-	vendorModel(0),
-	productModel(0),
 	timer(new QTimer(this)),
 	dumpWarningShown(false),
 	ostcFirmwareCheck(0),
@@ -33,7 +31,7 @@ DownloadFromDCWidget::DownloadFromDCWidget(QWidget *parent, Qt::WindowFlags f) :
 {
 	diveImportedModel = new DiveImportedModel(this);
 	diveImportedModel->setDiveTable(&downloadTable);
-	vendorModel = new QStringListModel(vendorList);
+	vendorModel.setStringList(vendorList);
 	QShortcut *close = new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_W), this);
 	QShortcut *quit = new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q), this);
 
@@ -54,7 +52,8 @@ DownloadFromDCWidget::DownloadFromDCWidget(QWidget *parent, Qt::WindowFlags f) :
 	ui.chooseLogFile->setEnabled(ui.logToFile->isChecked());
 	ui.selectAllButton->setEnabled(false);
 	ui.unselectAllButton->setEnabled(false);
-	ui.vendor->setModel(vendorModel);
+	ui.vendor->setModel(&vendorModel);
+	ui.product->setModel(&productModel);
 
 	progress_bar_text = "";
 
@@ -71,22 +70,27 @@ DownloadFromDCWidget::DownloadFromDCWidget(QWidget *parent, Qt::WindowFlags f) :
 	connect(close, SIGNAL(activated()), this, SLOT(close()));
 	connect(quit, SIGNAL(activated()), parent, SLOT(close()));
 
+	connect(&thread, SIGNAL(finished()),
+		this, SLOT(onDownloadThreadFinished()), Qt::QueuedConnection);
+
+	//TODO: Don't call mainwindow.
+	MainWindow *w = MainWindow::instance();
+	connect(&thread, SIGNAL(finished()), w, SLOT(refreshDisplay()));
+
 	auto dc = SettingsObjectWrapper::instance()->dive_computer_settings;
 	if (!dc->dc_vendor().isEmpty()) {
 		ui.vendor->setCurrentIndex(ui.vendor->findText(dc->dc_vendor()));
-		productModel = new QStringListModel(productList[dc->dc_vendor()]);
-		ui.product->setModel(productModel);
+		productModel.setStringList(productList[dc->dc_vendor()]);
 		if (!dc->dc_product().isEmpty())
 			ui.product->setCurrentIndex(ui.product->findText(dc->dc_product()));
 	}
-	if (!dc->dc_device().isEmpty())
-		ui.device->setEditText(dc->dc_device());
 
 	updateState(INITIAL);
 	ui.ok->setEnabled(false);
 	ui.downloadCancelRetryButton->setEnabled(true);
 	ui.downloadCancelRetryButton->setText(tr("Download"));
 
+	QString deviceText = dc->dc_device();
 #if defined(BT_SUPPORT) && defined(SSRF_CUSTOM_IO)
 	ui.bluetoothMode->setText(tr("Choose Bluetooth download mode"));
 	ui.bluetoothMode->setChecked(dc->downloadMode() == DC_TRANSPORT_BLUETOOTH);
@@ -94,10 +98,14 @@ DownloadFromDCWidget::DownloadFromDCWidget(QWidget *parent, Qt::WindowFlags f) :
 	connect(ui.bluetoothMode, SIGNAL(stateChanged(int)), this, SLOT(enableBluetoothMode(int)));
 	connect(ui.chooseBluetoothDevice, SIGNAL(clicked()), this, SLOT(selectRemoteBluetoothDevice()));
 	ui.chooseBluetoothDevice->setEnabled(ui.bluetoothMode->isChecked());
+	if (ui.bluetoothMode->isChecked())
+		deviceText = BtDeviceSelectionDialog::formatDeviceText(dc->dc_device(), dc->dc_device_name());
 #else
 	ui.bluetoothMode->hide();
 	ui.chooseBluetoothDevice->hide();
 #endif
+	if (!deviceText.isEmpty())
+		ui.device->setEditText(deviceText);
 }
 
 void DownloadFromDCWidget::updateProgressBar()
@@ -112,8 +120,24 @@ void DownloadFromDCWidget::updateProgressBar()
 	}
 	if (!same_string(progress_bar_text , "")) {
 		ui.progressBar->setFormat(progress_bar_text);
+#if defined(Q_OS_MAC)
+		// on mac the progress bar doesn't show its text
+		ui.progressText->setText(progress_bar_text);
+#endif
 	} else {
-		ui.progressBar->setFormat("%p%");
+		if (IS_FP_SAME(progress_bar_fraction, 0.0)) {
+			ui.progressBar->setFormat(tr("Connecting to dive computer"));
+#if defined(Q_OS_MAC)
+		// on mac the progress bar doesn't show its text
+		ui.progressText->setText(tr("Connecting to dive computer"));
+#endif
+		} else {
+			ui.progressBar->setFormat("%p%");
+#if defined(Q_OS_MAC)
+			// on mac the progress bar doesn't show its text
+			ui.progressText->setText(QString("%1%").arg(lrint(progress_bar_fraction * 100)));
+#endif
+		}
 	}
 	ui.progressBar->setValue(lrint(progress_bar_fraction * 100));
 	free(last_text);
@@ -131,6 +155,10 @@ void DownloadFromDCWidget::updateState(states state)
 		markChildrenAsEnabled();
 		timer->stop();
 		progress_bar_text = "";
+#if defined(Q_OS_MAC)
+		// on mac we show the text in a label
+		ui.progressText->setText(progress_bar_text);
+#endif
 	}
 
 	// tries to cancel an on going download
@@ -153,6 +181,10 @@ void DownloadFromDCWidget::updateState(states state)
 		ui.progressBar->hide();
 		markChildrenAsEnabled();
 		progress_bar_text = "";
+#if defined(Q_OS_MAC)
+		// on mac we show the text in a label
+		ui.progressText->setText(progress_bar_text);
+#endif
 	}
 
 	// DOWNLOAD is finally done, but we don't know if there was an error as libdivecomputer doesn't pass
@@ -165,10 +197,15 @@ void DownloadFromDCWidget::updateState(states state)
 			markChildrenAsEnabled();
 			progress_bar_text = "";
 		} else {
-			progress_bar_text = "";
+			if (downloadTable.nr != 0)
+				progress_bar_text = "";
 			ui.progressBar->setValue(100);
 			markChildrenAsEnabled();
 		}
+#if defined(Q_OS_MAC)
+		// on mac we show the text in a label
+		ui.progressText->setText(progress_bar_text);
+#endif
 	}
 
 	// DOWNLOAD is started.
@@ -184,10 +221,18 @@ void DownloadFromDCWidget::updateState(states state)
 	// got an error
 	else if (state == ERROR) {
 		timer->stop();
+
+		// Show messages that worker thread produced.
+		MainWindow::instance()->showErrors();
+
 		QMessageBox::critical(this, TITLE_OR_TEXT(tr("Error"), thread.error), QMessageBox::Ok);
 		markChildrenAsEnabled();
 		progress_bar_text = "";
 		ui.progressBar->hide();
+#if defined(Q_OS_MAC)
+		// on mac we show the text in a label
+		ui.progressText->setText(progress_bar_text);
+#endif
 	}
 
 	// properly updating the widget state
@@ -197,35 +242,17 @@ void DownloadFromDCWidget::updateState(states state)
 void DownloadFromDCWidget::on_vendor_currentIndexChanged(const QString &vendor)
 {
 	int dcType = DC_TYPE_SERIAL;
-	QAbstractItemModel *currentModel = ui.product->model();
-	if (!currentModel)
-		return;
-
-	productModel = new QStringListModel(productList[vendor]);
-	ui.product->setModel(productModel);
+	productModel.setStringList(productList[vendor]);
+	ui.product->setCurrentIndex(0);
 
 	if (vendor == QString("Uemis"))
 		dcType = DC_TYPE_UEMIS;
 	fill_device_list(dcType);
-
-	// Memleak - but deleting gives me a crash.
-	//currentModel->deleteLater();
 }
 
 void DownloadFromDCWidget::on_product_currentIndexChanged(const QString &product)
 {
-	// Set up the DC descriptor
-	dc_descriptor_t *descriptor = NULL;
-	descriptor = descriptorLookup[ui.vendor->currentText() + product];
-
-	// call dc_descriptor_get_transport to see if the dc_transport_t is DC_TRANSPORT_SERIAL
-	if (dc_descriptor_get_transport(descriptor) == DC_TRANSPORT_SERIAL) {
-		// if the dc_transport_t is DC_TRANSPORT_SERIAL, then enable the device node box.
-		ui.device->setEnabled(true);
-	} else {
-		// otherwise disable the device node box
-		ui.device->setEnabled(false);
-	}
+	updateDeviceEnabled();
 }
 
 void DownloadFromDCWidget::on_search_clicked()
@@ -267,6 +294,7 @@ void DownloadFromDCWidget::on_downloadCancelRetryButton_clicked()
 	if (data->bluetoothMode() && btDeviceSelectionDialog != NULL) {
 		// Get the selected device address
 		data->setDevName(btDeviceSelectionDialog->getSelectedDeviceAddress());
+		data->setDevBluetoothName(btDeviceSelectionDialog->getSelectedDeviceName());
 	} else
 		// this breaks an "else if" across lines... not happy...
 #endif
@@ -296,13 +324,6 @@ void DownloadFromDCWidget::on_downloadCancelRetryButton_clicked()
 #if defined(BT_SUPPORT) && defined(SSRF_CUSTOM_IO)
 	dc->setDownloadMode(ui.bluetoothMode->isChecked() ? DC_TRANSPORT_BLUETOOTH : DC_TRANSPORT_SERIAL);
 #endif
-
-	connect(&thread, SIGNAL(finished()),
-		this, SLOT(onDownloadThreadFinished()), Qt::QueuedConnection);
-
-	//TODO: Don't call mainwindow.
-	MainWindow *w = MainWindow::instance();
-	connect(&thread, SIGNAL(finished()), w, SLOT(refreshDisplay()));
 
 	// before we start, remember where the dive_table ended
 	previousLast = dive_table.nr;
@@ -341,7 +362,7 @@ void DownloadFromDCWidget::pickLogFile()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append("subsurface.log");
 	QString logFile = QFileDialog::getSaveFileName(this, tr("Choose file for dive computer download logfile"),
-					       filename, tr("Log files (*.log)"));
+					       filename, tr("Log files") + " (*.log)");
 	if (!logFile.isEmpty()) {
 		free(logfile_name);
 		logfile_name = copy_string(logFile.toUtf8().data());
@@ -367,7 +388,7 @@ void DownloadFromDCWidget::pickDumpFile()
 	QFileInfo fi(filename);
 	filename = fi.absolutePath().append(QDir::separator()).append("subsurface.bin");
 	QString dumpFile = QFileDialog::getSaveFileName(this, tr("Choose file for dive computer binary dump file"),
-						filename, tr("Dump files (*.bin)"));
+						filename, tr("Dump files") + " (*.bin)");
 	if (!dumpFile.isEmpty()) {
 		free(dumpfile_name);
 		dumpfile_name = copy_string(dumpFile.toUtf8().data());
@@ -452,6 +473,22 @@ void DownloadFromDCWidget::on_ok_clicked()
 	accept();
 }
 
+void DownloadFromDCWidget::updateDeviceEnabled()
+{
+	// Set up the DC descriptor
+	dc_descriptor_t *descriptor = NULL;
+	descriptor = descriptorLookup.value(ui.vendor->currentText() + ui.product->currentText());
+
+	// call dc_descriptor_get_transport to see if the dc_transport_t is DC_TRANSPORT_SERIAL
+	if (dc_descriptor_get_transport(descriptor) == DC_TRANSPORT_SERIAL) {
+		// if the dc_transport_t is DC_TRANSPORT_SERIAL, then enable the device node box.
+		ui.device->setEnabled(true);
+	} else {
+		// otherwise disable the device node box
+		ui.device->setEnabled(false);
+	}
+}
+
 void DownloadFromDCWidget::markChildrenAsDisabled()
 {
 	ui.device->setEnabled(false);
@@ -474,7 +511,7 @@ void DownloadFromDCWidget::markChildrenAsDisabled()
 
 void DownloadFromDCWidget::markChildrenAsEnabled()
 {
-	ui.device->setEnabled(true);
+	updateDeviceEnabled();
 	ui.vendor->setEnabled(true);
 	ui.product->setEnabled(true);
 	ui.forceDownload->setEnabled(true);
@@ -511,13 +548,7 @@ void DownloadFromDCWidget::bluetoothSelectionDialogIsFinished(int result)
 {
 	if (result == QDialog::Accepted) {
 		/* Make the selected Bluetooth device default */
-		QString selectedDeviceName = btDeviceSelectionDialog->getSelectedDeviceName();
-
-		if (selectedDeviceName == NULL || selectedDeviceName.isEmpty()) {
-			ui.device->setCurrentText(btDeviceSelectionDialog->getSelectedDeviceAddress());
-		} else {
-			ui.device->setCurrentText(selectedDeviceName);
-		}
+		ui.device->setEditText(btDeviceSelectionDialog->getSelectedDeviceText());
 	} else if (result == QDialog::Rejected){
 		/* Disable Bluetooth download mode */
 		ui.bluetoothMode->setChecked(false);

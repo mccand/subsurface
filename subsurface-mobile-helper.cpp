@@ -22,12 +22,26 @@
 #include "qt-models/gpslistmodel.h"
 #include "mobile-widgets/qmlprofile.h"
 #include "core/downloadfromdcthread.h"
+#include "core/connectionlistmodel.h"
 #include "qt-models/diveimportedmodel.h"
 #include "qt-models/messagehandlermodel.h"
 
 #include "mobile-widgets/qml/kirigami/src/kirigamiplugin.h"
 
 QObject *qqWindowObject = NULL;
+
+void set_non_bt_addresses() {
+#if defined(Q_OS_ANDROID)
+	connectionListModel.addAddress("FTDI");
+#elif defined(Q_OS_LINUX) // since this is in the else, it does NOT include Android
+	connectionListModel.addAddress("/dev/ttyS0");
+	connectionListModel.addAddress("/dev/ttyS1");
+	connectionListModel.addAddress("/dev/ttyS2");
+	connectionListModel.addAddress("/dev/ttyS3");
+	// this makes debugging so much easier - use the simulator
+	connectionListModel.addAddress("/tmp/ttyS1");
+#endif
+}
 
 void init_ui()
 {
@@ -45,7 +59,7 @@ void run_ui()
 
 	QQmlApplicationEngine engine;
 	KirigamiPlugin::getInstance().registerTypes();
-#if __APPLE__
+#if defined(__APPLE__) && !defined(Q_OS_IOS)
 	// when running the QML UI on a Mac the deployment of the QML Components seems
 	// to fail and the search path for the components is rather odd - simply the
 	// same directory the executable was started from <bundle>/Contents/MacOS/
@@ -75,18 +89,14 @@ void run_ui()
 	ctxt->setContextProperty("diveModel", sortModel);
 	ctxt->setContextProperty("gpsModel", gpsSortModel);
 	ctxt->setContextProperty("vendorList", vendorList);
-#if defined(Q_OS_ANDROID)
-	connectionListModel.addAddress("FTDI");
-#elif defined(Q_OS_LINUX) // since this is in the else, it does NOT include Android
-	connectionListModel.addAddress("/dev/ttyS0");
-	connectionListModel.addAddress("/dev/ttyS1");
-	connectionListModel.addAddress("/dev/ttyS2");
-	connectionListModel.addAddress("/dev/ttyS3");
-	// this makes debugging so much easier - use the simulator
-	connectionListModel.addAddress("/tmp/ttyS1");
-#endif
+	set_non_bt_addresses();
+
 	ctxt->setContextProperty("connectionListModel", &connectionListModel);
 	ctxt->setContextProperty("logModel", MessageHandlerModel::self());
+
+	// call again to be able to log
+	// FIXME - this is redundant - but otherwise they don't end up in the AppLog
+	fill_computer_list();
 
 	engine.load(QUrl(QStringLiteral("qrc:///qml/main.qml")));
 	qqWindowObject = engine.rootObjects().value(0);
@@ -95,7 +105,7 @@ void run_ui()
 		exit(1);
 	}
 	QQuickWindow *qml_window = qobject_cast<QQuickWindow *>(qqWindowObject);
-	qml_window->setIcon(QIcon(":/subsurface-mobile-icon"));
+	qml_window->setIcon(QIcon(":subsurface-mobile-icon"));
 	qqWindowObject->setProperty("messageText", QVariant("Subsurface-mobile startup"));
 	qDebug() << "qqwindow devicePixelRatio" << qml_window->devicePixelRatio() << qml_window->screen()->devicePixelRatio();
 	QScreen *screen = qml_window->screen();

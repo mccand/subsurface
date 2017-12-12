@@ -12,6 +12,7 @@
 #include <QSettings>
 #include <QShortcut>
 #include <QToolBar>
+#include <QStatusBar>
 
 #include "core/version.h"
 #include "desktop-widgets/divelistview.h"
@@ -23,7 +24,6 @@
 #include "core/planner.h"
 #include "qt-models/filtermodels.h"
 #include "profile-widget/profilewidget2.h"
-#include "desktop-widgets/globe.h"
 #include "core/divecomputer.h"
 #include "desktop-widgets/tab-widgets/maintab.h"
 #include "desktop-widgets/diveplanner.h"
@@ -36,6 +36,7 @@
 #include "qt-models/weigthsysteminfomodel.h"
 #include "qt-models/yearlystatisticsmodel.h"
 #include "qt-models/diveplannermodel.h"
+#include "qt-models/cylindermodel.h"
 #include "desktop-widgets/divelogimportdialog.h"
 #include "desktop-widgets/divelogexportdialog.h"
 #include "desktop-widgets/usersurvey.h"
@@ -86,6 +87,25 @@ extern "C" int updateProgress(const char *text)
 
 MainWindow *MainWindow::m_Instance = NULL;
 
+extern "C" void showErrorFromC()
+{
+	// Show errors only if we are running in the GUI thread.
+	// If we're not in the GUI thread, let errors accumulate.
+	if (QThread::currentThread() != QCoreApplication::instance()->thread())
+		return;
+
+	MainWindow *mainwindow = MainWindow::instance();
+	if (mainwindow)
+		mainwindow->showErrors();
+}
+
+void MainWindow::showErrors()
+{
+	const char *error = get_error_string();
+	if (error && error[0])
+		getNotificationWidget()->showNotification(error, KMessageWidget::Error);
+}
+
 MainWindow::MainWindow() : QMainWindow(),
 	actionNextDive(0),
 	actionPreviousDive(0),
@@ -104,12 +124,7 @@ MainWindow::MainWindow() : QMainWindow(),
 	MainTab *mainTab = new MainTab();
 	DiveListView *diveListView = new DiveListView();
 	ProfileWidget2 *profileWidget = new ProfileWidget2();
-
-#ifndef NO_MARBLE
-	GlobeGPS *mapWidget = GlobeGPS::instance();
-#else
 	MapWidget *mapWidget = MapWidget::instance();
-#endif
 
 	PlannerSettingsWidget *plannerSettings = new PlannerSettingsWidget();
 	DivePlannerWidget *plannerWidget = new DivePlannerWidget();
@@ -145,10 +160,7 @@ MainWindow::MainWindow() : QMainWindow(),
 	LocationInformationWidget * diveSiteEdit = new LocationInformationWidget();
 	connect(diveSiteEdit, &LocationInformationWidget::endEditDiveSite,
 			this, &MainWindow::setDefaultState);
-
-	connect(diveSiteEdit, &LocationInformationWidget::endEditDiveSite,
-			mainTab, &MainTab::refreshDiveInfo);
-
+	connect(diveSiteEdit, SIGNAL(endEditDiveSite()), this, SLOT(refreshDisplay()));
 	connect(diveSiteEdit, &LocationInformationWidget::endEditDiveSite,
 			mainTab, &MainTab::refreshDisplayedDiveSite);
 
@@ -189,14 +201,18 @@ MainWindow::MainWindow() : QMainWindow(),
 	connect(PreferencesDialog::instance(), SIGNAL(settingsChanged()), divePlannerWidget(), SLOT(settingsChanged()));
 	connect(PreferencesDialog::instance(), SIGNAL(settingsChanged()), divePlannerSettingsWidget(), SLOT(settingsChanged()));
 	connect(PreferencesDialog::instance(), SIGNAL(settingsChanged()), TankInfoModel::instance(), SLOT(update()));
-	connect(ui.actionRecent1, SIGNAL(triggered(bool)), this, SLOT(recentFileTriggered(bool)));
-	connect(ui.actionRecent2, SIGNAL(triggered(bool)), this, SLOT(recentFileTriggered(bool)));
-	connect(ui.actionRecent3, SIGNAL(triggered(bool)), this, SLOT(recentFileTriggered(bool)));
-	connect(ui.actionRecent4, SIGNAL(triggered(bool)), this, SLOT(recentFileTriggered(bool)));
+	for (int i = 0; i < NUM_RECENT_FILES; i++) {
+		actionsRecent[i] = new QAction(this);
+		actionsRecent[i]->setData(i);
+		ui.menuFile->insertAction(ui.actionQuit, actionsRecent[i]);
+		connect(actionsRecent[i], SIGNAL(triggered(bool)), this, SLOT(recentFileTriggered(bool)));
+	}
+	ui.menuFile->insertSeparator(ui.actionQuit);
 	connect(information(), SIGNAL(addDiveFinished()), graphics(), SLOT(setProfileState()));
 	connect(information(), SIGNAL(dateTimeChanged()), graphics(), SLOT(dateTimeChanged()));
 	connect(DivePlannerPointsModel::instance(), SIGNAL(planCreated()), this, SLOT(planCreated()));
 	connect(DivePlannerPointsModel::instance(), SIGNAL(planCanceled()), this, SLOT(planCanceled()));
+	connect(DivePlannerPointsModel::instance(), SIGNAL(variationsComputed(QString)), this, SLOT(updateVariations(QString)));
 	connect(plannerDetails->printPlan(), SIGNAL(pressed()), divePlannerWidget(), SLOT(printDecoPlan()));
 	connect(this, SIGNAL(startDiveSiteEdit()), this, SLOT(on_actionDiveSiteEdit_triggered()));
 	connect(information(), SIGNAL(diveSiteChanged(struct dive_site *)), mapWidget, SLOT(centerOnDiveSite(struct dive_site *)));
@@ -216,11 +232,7 @@ MainWindow::MainWindow() : QMainWindow(),
 	diveListView->reload(DiveTripModel::TREE);
 	diveListView->reloadHeaderActions();
 	diveListView->setFocus();
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->reload();
-#else
 	MapWidget::instance()->reload();
-#endif
 	diveListView->expand(dive_list()->model()->index(0, 0));
 	diveListView->scrollTo(dive_list()->model()->index(0, 0), QAbstractItemView::PositionAtCenter);
 	divePlannerWidget()->settingsChanged();
@@ -246,13 +258,30 @@ MainWindow::MainWindow() : QMainWindow(),
 	connect(geoLookup, SIGNAL(started()),information(), SLOT(disableGeoLookupEdition()));
 	connect(geoLookup, SIGNAL(finished()), information(), SLOT(enableGeoLookupEdition()));
 #ifndef NO_PRINTING
-	// copy the bundled print templates to the user path; no overwriting occurs!
-	copyPath(getPrintingTemplatePathBundle(), getPrintingTemplatePathUser());
+	// copy the bundled print templates to the user path
+	QStringList templateBackupList;
+	QString templatePathUser(getPrintingTemplatePathUser());
+	copy_bundled_templates(getPrintingTemplatePathBundle(), templatePathUser, &templateBackupList);
+	if (templateBackupList.length()) {
+		QMessageBox msgBox(this);
+		templatePathUser.replace("\\", "/");
+		templateBackupList.replaceInStrings(templatePathUser + "/", "");
+		msgBox.setWindowTitle(tr("Template backup created"));
+		msgBox.setText(tr("The following backup printing templates were created:\n\n%1\n\n"
+			"Location:\n%2\n\n"
+			"Please note that as of this version of Subsurface the default templates\n"
+			"are read-only and should not be edited directly, since the application\n"
+			"can overwrite them on startup.").arg(templateBackupList.join("\n")).arg(templatePathUser));
+		msgBox.setStandardButtons(QMessageBox::Ok);
+		msgBox.exec();
+	}
+	set_bundled_templates_as_read_only();
 	find_all_templates();
 #endif
 
 	setupSocialNetworkMenu();
 	set_git_update_cb(&updateProgress);
+	set_error_cb(&showErrorFromC);
 
 	// Toolbar Connections related to the Profile Update
 	SettingsObjectWrapper *sWrapper = SettingsObjectWrapper::instance();
@@ -296,7 +325,6 @@ MainWindow::MainWindow() : QMainWindow(),
 
 	// now let's set up some connections
 	connect(graphics(), &ProfileWidget2::enableToolbar ,this, &MainWindow::setEnabledToolbar);
-	connect(graphics(), &ProfileWidget2::showError, this, &MainWindow::showError);
 	connect(graphics(), &ProfileWidget2::disableShortcuts, this, &MainWindow::disableShortcuts);
 	connect(graphics(), &ProfileWidget2::enableShortcuts, this, &MainWindow::enableShortcuts);
 	connect(graphics(), &ProfileWidget2::refreshDisplay, this, &MainWindow::refreshDisplay);
@@ -322,6 +350,14 @@ MainWindow::MainWindow() : QMainWindow(),
 	ui.profTankbar->setChecked(sWrapper->techDetails->tankBar());
 	ui.profTissues->setChecked(sWrapper->techDetails->percentageGraph());
 	ui.profScaled->setChecked(sWrapper->techDetails->zoomedPlot());
+
+// full screen support is buggy on Windows and Ubuntu.
+// require the FULLSCREEN_SUPPORT macro to enable it!
+#ifndef FULLSCREEN_SUPPORT
+	ui.actionFullScreen->setEnabled(false);
+	ui.actionFullScreen->setVisible(false);
+	setWindowState(windowState() & ~Qt::WindowFullScreen);
+#endif
 }
 
 MainWindow::~MainWindow()
@@ -344,6 +380,9 @@ void MainWindow::setupSocialNetworkMenu()
 	FacebookManager *fb = FacebookManager::instance();
 	connect(fb, &FacebookManager::justLoggedIn, this, &MainWindow::facebookLoggedIn);
 	connect(fb, &FacebookManager::justLoggedOut, this, &MainWindow::facebookLoggedOut);
+	connect(fb, &FacebookManager::sendMessage, [this](const QString& msg) {
+		statusBar()->showMessage(msg, 10000); // show message for 10 secs on the statusbar.
+	});
 	share_on_fb = new QAction(this);
 	share_on_fb->setText(facebookPlugin->socialNetworkName());
 	share_on_fb->setIcon(QIcon(facebookPlugin->socialNetworkIcon()));
@@ -372,6 +411,7 @@ void MainWindow::facebookLoggedOut()
 
 void MainWindow::socialNetworkRequestConnect()
 {
+	qDebug() << "Requesting connect on the social network";
 	QAction *action = qobject_cast<QAction*>(sender());
 	ISocialNetworkIntegration *plugin = qobject_cast<ISocialNetworkIntegration*>(action->data().value<QObject*>());
 	if (plugin->isConnected())
@@ -406,7 +446,6 @@ void MainWindow::enableDisableCloudActions()
 PlannerDetails *MainWindow::plannerDetails() const {
 	return qobject_cast<PlannerDetails*>(applicationState["PlanDive"].bottomRight);
 }
-
 PlannerSettingsWidget *MainWindow::divePlannerSettingsWidget() {
 	return qobject_cast<PlannerSettingsWidget*>(applicationState["PlanDive"].bottomLeft);
 }
@@ -423,17 +462,12 @@ MainWindow *MainWindow::instance()
 	return m_Instance;
 }
 
-// this gets called after we download dives from a divecomputer
+// This gets called after one or more dives were added, edited or downloaded for a dive computer
 void MainWindow::refreshDisplay(bool doRecreateDiveList)
 {
-	getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
 	information()->reload();
 	TankInfoModel::instance()->update();
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->reload();
-#else
 	MapWidget::instance()->reload();
-#endif
 	if (doRecreateDiveList)
 		recreateDiveList();
 
@@ -452,6 +486,7 @@ void MainWindow::recreateDiveList()
 	BuddyFilterModel::instance()->repopulate();
 	LocationFilterModel::instance()->repopulate();
 	SuitsFilterModel::instance()->repopulate();
+	MultiFilterSortModel::instance()->myInvalidate();
 }
 
 void MainWindow::configureToolbar() {
@@ -504,11 +539,7 @@ void MainWindow::current_dive_changed(int divenr)
 	graphics()->plotDive();
 	information()->updateDiveInfo();
 	configureToolbar();
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->reload();
-#else
 	MapWidget::instance()->reload();
-#endif
 }
 
 void MainWindow::on_actionNew_triggered()
@@ -524,7 +555,7 @@ void MainWindow::on_actionOpen_triggered()
 	// yes, this look wrong to use getSaveFileName() for the open dialog, but we need to be able
 	// to enter file names that don't exist in order to use our git syntax /path/to/dir[branch]
 	// with is a potentially valid input, but of course won't exist. So getOpenFileName() wouldn't work
-	QFileDialog dialog(this, tr("Open file"), lastUsedDir(), filter());
+	QFileDialog dialog(this, tr("Open file"), lastUsedDir(), filter_open());
 	dialog.setFileMode(QFileDialog::AnyFile);
 	dialog.setViewMode(QFileDialog::Detail);
 	dialog.setLabelText(QFileDialog::Accept, tr("Open"));
@@ -567,10 +598,9 @@ void MainWindow::on_actionCloudstorageopen_triggered()
 		return;
 
 	QString filename;
-	if (getCloudURL(filename)) {
-		getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
+	if (getCloudURL(filename))
 		return;
-	}
+
 	if (verbose)
 		qDebug() << "Opening cloud storage from:" << filename;
 
@@ -580,9 +610,8 @@ void MainWindow::on_actionCloudstorageopen_triggered()
 
 	showProgressBar();
 	QByteArray fileNamePtr = QFile::encodeName(filename);
-	error = parse_file(fileNamePtr.data());
-	if (!error) {
-		set_filename(fileNamePtr.data(), true);
+	if (!parse_file(fileNamePtr.data())) {
+		set_filename(fileNamePtr.data());
 		setTitle(MWTF_FILENAME);
 	}
 	getNotificationWidget()->hideNotification();
@@ -595,26 +624,25 @@ void MainWindow::on_actionCloudstorageopen_triggered()
 void MainWindow::on_actionCloudstoragesave_triggered()
 {
 	QString filename;
-	if (getCloudURL(filename)) {
-		getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
+	if (!dive_table.nr) {
+		report_error(qPrintable(tr("Don't save an empty log to the cloud")));
 		return;
 	}
+	if (getCloudURL(filename))
+		return;
+
 	if (verbose)
 		qDebug() << "Saving cloud storage to:" << filename;
 	if (information()->isEditing())
 		information()->acceptChanges();
 
 	showProgressBar();
-
-	if (save_dives(filename.toUtf8().data())) {
-		getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
-		return;
-	}
-
+	int error = save_dives(filename.toUtf8().data());
 	hideProgressBar();
+	if (error)
+		return;
 
-	getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
-	set_filename(filename.toUtf8().data(), true);
+	set_filename(filename.toUtf8().data());
 	setTitle(MWTF_FILENAME);
 	mark_divelist_changed(false);
 }
@@ -637,7 +665,7 @@ void learnImageDirs(QStringList dirnames)
 void MainWindow::on_actionHash_images_triggered()
 {
 	QFuture<void> future;
-	QFileDialog dialog(this, tr("Traverse image directories"), lastUsedDir(), filter());
+	QFileDialog dialog(this, tr("Traverse image directories"), lastUsedDir());
 	dialog.setFileMode(QFileDialog::Directory);
 	dialog.setViewMode(QFileDialog::Detail);
 	dialog.setLabelText(QFileDialog::Accept, tr("Scan"));
@@ -664,11 +692,7 @@ void MainWindow::cleanUpEmpty()
 	information()->updateDiveInfo(true);
 	graphics()->setEmptyState();
 	dive_list()->reload(DiveTripModel::TREE);
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->reload();
-#else
 	MapWidget::instance()->reload();
-#endif
 	if (!existing_filename)
 		setTitle(MWTF_DEFAULT);
 	disableShortcuts();
@@ -719,7 +743,7 @@ QString MainWindow::lastUsedDir()
 
 	settings.beginGroup("FileDialog");
 	if (settings.contains("LastDir"))
-		if (QDir::setCurrent(settings.value("LastDir").toString()))
+		if (QDir(settings.value("LastDir").toString()).exists())
 			lastDir = settings.value("LastDir").toString();
 	return lastDir;
 }
@@ -766,6 +790,11 @@ void MainWindow::showProfile()
 
 void MainWindow::on_actionPreferences_triggered()
 {
+	// the refreshPages() is currently done for just one
+	// reason. Allow the user to define a default cylinder that
+	// is not hardcoded but coming from the logbook.
+	PreferencesDialog::instance()->refreshPages();
+
 	PreferencesDialog::instance()->show();
 	PreferencesDialog::instance()->raise();
 }
@@ -868,6 +897,14 @@ void MainWindow::setPlanNotes()
 	plannerDetails()->divePlanOutput()->setHtml(displayed_dive.notes);
 }
 
+void MainWindow::updateVariations(QString variations)
+{
+	QString notes = QString(displayed_dive.notes);
+	free(displayed_dive.notes);
+	displayed_dive.notes = strdup(notes.replace("VARIATIONS", variations).toUtf8().data());
+	plannerDetails()->divePlanOutput()->setHtml(displayed_dive.notes);
+}
+
 void MainWindow::printPlan()
 {
 #ifndef NO_PRINTING
@@ -922,6 +959,7 @@ void MainWindow::setupForAddAndPlan(const char *model)
 	displayed_dive.id = dive_getUniqID(&displayed_dive);
 	displayed_dive.when = QDateTime::currentMSecsSinceEpoch() / 1000L + gettimezoneoffset() + 3600;
 	displayed_dive.dc.model = strdup(model); // don't translate! this is stored in the XML file
+	dc_number = 1;
 	// setup the dive cylinders
 	DivePlannerPointsModel::instance()->clear();
 	DivePlannerPointsModel::instance()->setupCylinders();
@@ -952,6 +990,7 @@ void MainWindow::on_actionReplanDive_triggered()
 		divePlannerWidget()->setSalinity(current_dive->salinity);
 	DivePlannerPointsModel::instance()->loadFromDive(current_dive);
 	reset_cylinders(&displayed_dive, true);
+	CylindersModel::instance()->updateDive();
 }
 
 void MainWindow::on_actionDivePlanner_triggered()
@@ -970,8 +1009,11 @@ void MainWindow::on_actionDivePlanner_triggered()
 	DivePlannerPointsModel::instance()->setupStartTime();
 	DivePlannerPointsModel::instance()->createSimpleDive();
 	// plan the dive in the same mode as the currently selected one
-	if (current_dive)
+	if (current_dive) {
 		divePlannerSettingsWidget()->setDiveMode(current_dive->dc.divemode);
+		if (current_dive->salinity)
+			divePlannerWidget()->setSalinity(current_dive->salinity);
+	}
 	DivePictureModel::instance()->updateDivePictures();
 	divePlannerWidget()->setReplanButton(false);
 }
@@ -1032,11 +1074,7 @@ void MainWindow::on_actionEditDive_triggered()
 	disableShortcuts();
 	DivePlannerPointsModel::instance()->setPlanMode(DivePlannerPointsModel::ADD);
 	graphics()->setAddState();
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->endGetDiveCoordinates();
-#else
 	MapWidget::instance()->endGetDiveCoordinates();
-#endif
 	setApplicationState("EditDive");
 	DivePlannerPointsModel::instance()->loadFromDive(current_dive);
 	information()->enableEdition(MainTab::MANUALLY_ADDED_DIVE);
@@ -1076,7 +1114,7 @@ void MainWindow::on_actionYearlyStatistics_triggered()
 	d.setWindowFlags(Qt::Window | Qt::CustomizeWindowHint
 		| Qt::WindowCloseButtonHint | Qt::WindowTitleHint);
 	d.setWindowTitle(tr("Yearly statistics"));
-	d.setWindowIcon(QIcon(":/subsurface-icon"));
+	d.setWindowIcon(QIcon(":subsurface-icon"));
 	d.exec();
 }
 
@@ -1094,8 +1132,8 @@ void MainWindow::on_actionViewList_triggered()
 {
 	TOGGLE_COLLAPSABLE( true );
 	beginChangeState(LIST_MAXIMIZED);
-	ui.topSplitter->setSizes(BEHAVIOR << EXPANDED << COLLAPSED);
 	ui.mainSplitter->setSizes(BEHAVIOR << COLLAPSED << EXPANDED);
+	ui.bottomSplitter->setSizes(BEHAVIOR << EXPANDED << COLLAPSED);
 }
 
 void MainWindow::on_actionViewProfile_triggered()
@@ -1251,43 +1289,89 @@ void MainWindow::on_actionUserSurvey_triggered()
 	survey->show();
 }
 
-QString MainWindow::filter()
+QString MainWindow::filter_open()
 {
 	QString f;
-	f += "Dive log files ( *.ssrf ";
-	f += "*.can *.CAN ";
-	f += "*.db *.DB " ;
-	f += "*.sql *.SQL " ;
-	f += "*.dld *.DLD ";
-	f += "*.jlb *.JLB ";
-	f += "*.lvd *.LVD ";
-	f += "*.sde *.SDE ";
-	f += "*.udcf *.UDCF ";
-	f += "*.uddf *.UDDF ";
-	f += "*.xml *.XML ";
-	f += "*.dlf *.DLF ";
-	f += "*.log *.LOG ";
-	f += "*.txt *.TXT) ";
-	f += "*.apd *.APD) ";
-	f += "*.dive *.DIVE ";
-	f += "*.zxu *.zxl *.ZXU *.ZXL ";
+	f += tr("Dive log files");
+	f += " (*.ssrf";
+	f += " *.xml";
+	f += " *.can";
+	f += " *.db" ;
+	f += " *.sql" ;
+	f += " *.dld";
+	f += " *.jlb";
+	f += " *.lvd";
+	f += " *.sde";
+	f += " *.udcf";
+	f += " *.uddf";
+	f += " *.dlf";
+	f += " *.log";
+	f += " *.txt";
+	f += " *.apd";
+	f += " *.dive";
+	f += " *.zxu *.zxl";
 	f += ");;";
 
-	f += "Subsurface (*.ssrf);;";
-	f += "Cochran (*.can *.CAN);;";
-	f += "DiveLogs.de (*.dld *.DLD);;";
-	f += "JDiveLog  (*.jlb *.JLB);;";
-	f += "Liquivision (*.lvd *.LVD);;";
-	f += "Suunto (*.sde *.SDE *.db *.DB);;";
-	f += "UDCF (*.udcf *.UDCF);;";
-	f += "UDDF (*.uddf *.UDDF);;";
-	f += "XML (*.xml *.XML);;";
-	f += "Divesoft (*.dlf *.DLF);;";
-	f += "Datatrak/WLog Files (*.log *.LOG);;";
-	f += "MkVI files (*.txt *.TXT);;";
-	f += "APD log viewer (*.apd *.APD);;";
-	f += "OSTCtools Files (*.dive *.DIVE);;";
-	f += "DAN DL7 (*.zxu *.zxl *.ZXU *.ZXL)";
+	f += tr("Subsurface files") + " (*.ssrf *.xml);;";
+	f += tr("Cochran") + " (*.can);;";
+	f += tr("DiveLogs.de") + " (*.dld);;";
+	f += tr("JDiveLog") + " (*.jlb);;";
+	f += tr("Liquivision") + " (*.lvd);;";
+	f += tr("Suunto") + " (*.sde *.db);;";
+	f += tr("UDCF") + " (*.udcf);;";
+	f += tr("UDDF") + " (*.uddf);;";
+	f += tr("XML") + " (*.xml);;";
+	f += tr("Divesoft") + " (*.dlf);;";
+	f += tr("Datatrak/WLog") + " (*.log);;";
+	f += tr("MkVI files") + " (*.txt);;";
+	f += tr("APD log viewer") + " (*.apd);;";
+	f += tr("OSTCtools") + " (*.dive);;";
+	f += tr("DAN DL7") + " (*.zxu *.zxl)";
+
+	return f;
+}
+
+QString MainWindow::filter_import()
+{
+	QString f;
+	f += tr("Dive log files");
+	f += " (*.ssrf";
+	f += " *.xml";
+	f += " *.can";
+	f += " *.csv";
+	f += " *.db" ;
+	f += " *.sql" ;
+	f += " *.dld";
+	f += " *.jlb";
+	f += " *.lvd";
+	f += " *.sde";
+	f += " *.udcf";
+	f += " *.uddf";
+	f += " *.dlf";
+	f += " *.log";
+	f += " *.txt";
+	f += " *.apd";
+	f += " *.dive";
+	f += " *.zxu *.zxl";
+	f += ");;";
+
+	f += tr("Subsurface files") + " (*.ssrf *.xml);;";
+	f += tr("Cochran") + " (*.can);;";
+	f += tr("CSV") + " (*.csv *.CSV);;";
+	f += tr("DiveLogs.de") + " (*.dld);;";
+	f += tr("JDiveLog") + " (*.jlb);;";
+	f += tr("Liquivision") + " (*.lvd);;";
+	f += tr("Suunto") + " (*.sde *.db);;";
+	f += tr("UDCF") + " (*.udcf);;";
+	f += tr("UDDF") + " (*.uddf);;";
+	f += tr("XML") + " (*.xml);;";
+	f += tr("Divesoft") + " (*.dlf);;";
+	f += tr("Datatrak/WLog") + " (*.log);;";
+	f += tr("MkVI files") + " (*.txt);;";
+	f += tr("APD log viewer") + " (*.apd);;";
+	f += tr("OSTCtools") + " (*.dive);;";
+	f += tr("DAN DL7") + " (*.zxu *.zxl);;";
+	f += tr("All files") + " (*.*)";
 
 	return f;
 }
@@ -1363,35 +1447,32 @@ void MainWindow::readSettings()
 	// now make sure that the cloud menu items are enabled IFF cloud account is verified
 	enableDisableCloudActions();
 
-#if !defined(SUBSURFACE_MOBILE)
-	QSettings s; //TODO: this 's' exists only for the loadRecentFiles, remove it.
-
-	loadRecentFiles(&s);
+	loadRecentFiles();
 	if (firstRun) {
-		checkSurvey(&s);
+		checkSurvey();
 		firstRun = false;
 	}
-#endif
 }
 
 #undef TOOLBOX_PREF_BUTTON
 
-void MainWindow::checkSurvey(QSettings *s)
+void MainWindow::checkSurvey()
 {
-	s->beginGroup("UserSurvey");
-	if (!s->contains("FirstUse42")) {
+	QSettings s;
+	s.beginGroup("UserSurvey");
+	if (!s.contains("FirstUse42")) {
 		QVariant value = QDate().currentDate();
-		s->setValue("FirstUse42", value);
+		s.setValue("FirstUse42", value);
 	}
 	// wait a week for production versions, but not at all for non-tagged builds
 	int waitTime = 7;
-	QDate firstUse42 = s->value("FirstUse42").toDate();
-	if (run_survey || (firstUse42.daysTo(QDate().currentDate()) > waitTime && !s->contains("SurveyDone"))) {
+	QDate firstUse42 = s.value("FirstUse42").toDate();
+	if (run_survey || (firstUse42.daysTo(QDate().currentDate()) > waitTime && !s.contains("SurveyDone"))) {
 		if (!survey)
 			survey = new UserSurvey(this);
 		survey->show();
 	}
-	s->endGroup();
+	s.endGroup();
 }
 
 void MainWindow::writeSettings()
@@ -1448,49 +1529,32 @@ MainTab *MainWindow::information()
 	return qobject_cast<MainTab*>(applicationState["Default"].topLeft);
 }
 
-void MainWindow::loadRecentFiles(QSettings *s)
+void MainWindow::loadRecentFiles()
 {
-	QStringList files;
-	bool modified = false;
-
-	s->beginGroup("Recent_Files");
-	for (int c = 1; c <= 4; c++) {
-		QString key = QString("File_%1").arg(c);
-		if (s->contains(key)) {
-			QString file = s->value(key).toString();
-
-			if (QFile::exists(file)) {
-				files.append(file);
-			} else {
-				modified = true;
-			}
-		} else {
+	recentFiles.clear();
+	QSettings s;
+	s.beginGroup("Recent_Files");
+	foreach (const QString &key, s.childKeys()) {
+		// TODO Sorting only correct up to 9 entries. Currently, only 4 used, so no problem.
+		if (!key.startsWith("File_"))
+			continue;
+		QString file = s.value(key).toString();
+		if (QFile::exists(file))
+			recentFiles.append(file);
+		if (recentFiles.count() > NUM_RECENT_FILES)
 			break;
-		}
 	}
+	s.endGroup();
+	updateRecentFilesMenu();
+}
 
-	if (modified) {
-		for (int c = 0; c < 4; c++) {
-			QString key = QString("File_%1").arg(c + 1);
+void MainWindow::updateRecentFilesMenu()
+{
+	for (int c = 0; c < NUM_RECENT_FILES; c++) {
+		QAction *action = actionsRecent[c];
 
-			if (files.count() > c) {
-				s->setValue(key, files.at(c));
-			} else {
-				if (s->contains(key)) {
-					s->remove(key);
-				}
-			}
-		}
-
-		s->sync();
-	}
-	s->endGroup();
-
-	for (int c = 0; c < 4; c++) {
-		QAction *action = this->findChild<QAction *>(QString("actionRecent%1").arg(c + 1));
-
-		if (files.count() > c) {
-			QFileInfo fi(files.at(c));
+		if (recentFiles.count() > c) {
+			QFileInfo fi(recentFiles.at(c));
 			action->setText(fi.fileName());
 			action->setToolTip(fi.absoluteFilePath());
 			action->setVisible(true);
@@ -1500,99 +1564,32 @@ void MainWindow::loadRecentFiles(QSettings *s)
 	}
 }
 
-void MainWindow::addRecentFile(const QStringList &newFiles)
+void MainWindow::addRecentFile(const QString &file, bool update)
 {
-	QStringList files;
-	QSettings s;
-
-	if (newFiles.isEmpty())
-		return;
-
-	s.beginGroup("Recent_Files");
-
-	for (int c = 1; c <= 4; c++) {
-		QString key = QString("File_%1").arg(c);
-		if (s.contains(key)) {
-			QString file = s.value(key).toString();
-
-			files.append(file);
-		} else {
-			break;
-		}
-	}
-
-	foreach (const QString &file, newFiles) {
-		int index = files.indexOf(QDir::toNativeSeparators(file));
-
-		if (index >= 0) {
-			files.removeAt(index);
-		}
-	}
-
-	foreach (const QString &file, newFiles) {
-		if (QFile::exists(file)) {
-			files.prepend(QDir::toNativeSeparators(file));
-		}
-	}
-
-	while (files.count() > 4) {
-		files.removeLast();
-	}
-
-	for (int c = 1; c <= 4; c++) {
-		QString key = QString("File_%1").arg(c);
-
-		if (files.count() >= c) {
-			s.setValue(key, files.at(c - 1));
-		} else {
-			if (s.contains(key)) {
-				s.remove(key);
-			}
-		}
-	}
-	s.endGroup();
-	s.sync();
-
-	loadRecentFiles(&s);
+	QString localFile = QDir::toNativeSeparators(file);
+	int index = recentFiles.indexOf(localFile);
+	if (index >= 0)
+		recentFiles.removeAt(index);
+	recentFiles.prepend(localFile);
+	while (recentFiles.count() > NUM_RECENT_FILES)
+		recentFiles.removeLast();
+	if (update)
+		updateRecentFiles();
 }
 
-void MainWindow::removeRecentFile(QStringList failedFiles)
+void MainWindow::updateRecentFiles()
 {
-	QStringList files;
 	QSettings s;
 
-	if (failedFiles.isEmpty())
-		return;
-
 	s.beginGroup("Recent_Files");
-
-	for (int c = 1; c <= 4; c++) {
+	s.remove("");	// Remove all old entries
+	for (int c = 1; c <= recentFiles.count(); c++) {
 		QString key = QString("File_%1").arg(c);
-
-		if (s.contains(key)) {
-			QString file = s.value(key).toString();
-			files.append(file);
-		} else {
-			break;
-		}
+		s.setValue(key, recentFiles.at(c - 1));
 	}
-
-	foreach (const QString &file, failedFiles)
-		files.removeAll(file);
-
-	for (int c = 1; c <= 4; c++) {
-		QString key = QString("File_%1").arg(c);
-
-		if (files.count() >= c)
-			s.setValue(key, files.at(c - 1));
-		else if (s.contains(key))
-			s.remove(key);
-	}
-
 	s.endGroup();
 	s.sync();
-
-	loadRecentFiles(&s);
+	updateRecentFilesMenu();
 }
 
 void MainWindow::recentFileTriggered(bool checked)
@@ -1602,9 +1599,10 @@ void MainWindow::recentFileTriggered(bool checked)
 	if (!okToClose(tr("Please save or cancel the current dive edit before opening a new file.")))
 		return;
 
-	QAction *actionRecent = (QAction *)sender();
-
-	const QString &filename = actionRecent->toolTip();
+	int filenr = ((QAction *)sender())->data().toInt();
+	if (filenr >= recentFiles.count())
+		return;
+	const QString &filename = recentFiles[filenr];
 
 	updateLastUsedDir(QFileInfo(filename).dir().path());
 	closeCurrentFile();
@@ -1627,7 +1625,7 @@ int MainWindow::file_save_as(void)
 	}
 	// create a file dialog that allows us to save to a new file
 	QFileDialog selection_dialog(this, tr("Save file as"), default_filename,
-					 tr("Subsurface XML files (*.ssrf *.xml *.XML)"));
+					 tr("Subsurface files") + " (*.ssrf *.xml)");
 	selection_dialog.setAcceptMode(QFileDialog::AcceptSave);
 	selection_dialog.setFileMode(QFileDialog::AnyFile);
 	selection_dialog.setDefaultSuffix("");
@@ -1654,16 +1652,13 @@ int MainWindow::file_save_as(void)
 	if (information()->isEditing())
 		information()->acceptChanges();
 
-	if (save_dives(filename.toUtf8().data())) {
-		getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
+	if (save_dives(filename.toUtf8().data()))
 		return -1;
-	}
 
-	getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
-	set_filename(filename.toUtf8().data(), true);
+	set_filename(filename.toUtf8().data());
 	setTitle(MWTF_FILENAME);
 	mark_divelist_changed(false);
-	addRecentFile(QStringList() << filename);
+	addRecentFile(filename, true);
 	return 0;
 }
 
@@ -1691,27 +1686,20 @@ int MainWindow::file_save(void)
 	if (is_cloud)
 		showProgressBar();
 	if (save_dives(existing_filename)) {
-		getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
 		if (is_cloud)
 			hideProgressBar();
 		return -1;
 	}
 	if (is_cloud)
 		hideProgressBar();
-	getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
 	mark_divelist_changed(false);
-	addRecentFile(QStringList() << QString(existing_filename));
+	addRecentFile(QString(existing_filename), true);
 	return 0;
 }
 
 NotificationWidget *MainWindow::getNotificationWidget()
 {
 	return ui.mainErrorMessage;
-}
-
-void MainWindow::showError()
-{
-	getNotificationWidget()->showNotification(get_error_string(), KMessageWidget::Error);
 }
 
 QString MainWindow::displayedFilename(QString fullFilename)
@@ -1803,39 +1791,24 @@ void MainWindow::importTxtFiles(const QStringList fileNames)
 
 void MainWindow::loadFiles(const QStringList fileNames)
 {
-	bool showWarning = false;
 	if (fileNames.isEmpty()) {
 		refreshDisplay();
 		return;
 	}
 	QByteArray fileNamePtr;
-	QStringList failedParses;
 
 	showProgressBar();
 	for (int i = 0; i < fileNames.size(); ++i) {
-		int error;
-
 		fileNamePtr = QFile::encodeName(fileNames.at(i));
-		error = parse_file(fileNamePtr.data());
-		if (!error) {
-			set_filename(fileNamePtr.data(), true);
+		if (!parse_file(fileNamePtr.data())) {
+			set_filename(fileNamePtr.data());
+			addRecentFile(fileNamePtr, false);
 			setTitle(MWTF_FILENAME);
-			// if there were any messages, show them
-			QString warning = get_error_string();
-			if (!warning.isEmpty()) {
-				showWarning = true;
-				getNotificationWidget()->showNotification(warning , KMessageWidget::Information);
-			}
-		} else {
-			failedParses.append(fileNames.at(i));
 		}
 	}
 	hideProgressBar();
-	if (!showWarning)
-		getNotificationWidget()->hideNotification();
+	updateRecentFiles();
 	process_dives(false, false);
-	addRecentFile(fileNames);
-	removeRecentFile(failedParses);
 
 	refreshDisplay();
 	ui.actionAutoGroup->setChecked(autogroup);
@@ -1854,24 +1827,7 @@ void MainWindow::loadFiles(const QStringList fileNames)
 
 void MainWindow::on_actionImportDiveLog_triggered()
 {
-	QStringList fileNames = QFileDialog::getOpenFileNames(this, tr("Open dive log file"), lastUsedDir(),
-		tr("Dive log files (*.ssrf *.can *.csv *.db *.sql *.dld *.jlb *.lvd *.sde *.udcf *.uddf *.xml *.txt *.dlf *.apd *.zxu *.zxl"
-			"*.SSRF *.CAN *.CSV *.DB *.SQL *.DLD *.JLB *.LVD *.SDE *.UDCF *.UDDF *.xml *.TXT *.DLF *.APD *.ZXU *.ZXL);;"
-			"Cochran files (*.can *.CAN);;"
-			"CSV files (*.csv *.CSV);;"
-			"DiveLog.de files (*.dld *.DLD);;"
-			"JDiveLog files (*.jlb *.JLB);;"
-			"Liquivision files (*.lvd *.LVD);;"
-			"MkVI files (*.txt *.TXT);;"
-			"Suunto files (*.sde *.db *.SDE *.DB);;"
-			"Divesoft files (*.dlf *.DLF);;"
-			"UDDF/UDCF files (*.uddf *.udcf *.UDDF *.UDCF);;"
-			"XML files (*.xml *.XML);;"
-			"APD log viewer (*.apd *.APD);;"
-			"Datatrak/WLog Files (*.log *.LOG);;"
-			"OSTCtools Files (*.dive *.DIVE);;"
-			"DAN DL7 (*.zxu *.zxl *.ZXU *.ZXL);;"
-			"All files (*)"));
+	QStringList fileNames = QFileDialog::getOpenFileNames(this, tr("Open dive log file"), lastUsedDir(), filter_import());
 
 	if (fileNames.isEmpty())
 		return;
@@ -1969,10 +1925,18 @@ void MainWindow::on_paste_triggered()
 
 void MainWindow::on_actionFilterTags_triggered()
 {
-	if (ui.multiFilter->isVisible())
+	if (ui.multiFilter->isVisible()) {
 		ui.multiFilter->closeFilter();
-	else
+		ui.actionFilterTags->setChecked(false);
+	} else {
 		ui.multiFilter->setVisible(true);
+		ui.actionFilterTags->setChecked(true);
+	}
+}
+
+void MainWindow::setCheckedActionFilterTags(bool checked)
+{
+	ui.actionFilterTags->setChecked(checked);
 }
 
 void MainWindow::registerApplicationState(const QByteArray& state, QWidget *topLeft, QWidget *topRight, QWidget *bottomLeft, QWidget *bottomRight)

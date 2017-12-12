@@ -21,26 +21,26 @@ endif()
 if(BTSUPPORT)
 	add_definitions(-DBT_SUPPORT)
 	set(BT_SRC_FILES desktop-widgets/btdeviceselectiondialog.cpp)
-	set(BT_CORE_SRC_FILES qtserialbluetooth.cpp)
+	set(BT_CORE_SRC_FILES qtserialbluetooth.cpp btdiscovery.cpp)
 endif()
 
 if(BLESUPPORT)
 	add_definitions(-DBLE_SUPPORT)
-	set(BT_CORE_SRC_FILES qt-ble.cpp)
+	set(BT_CORE_SRC_FILES ${BT_CORE_SRC_FILES} qt-ble.cpp)
 endif()
 
 # compile the core library, in C.
 set(SUBSURFACE_CORE_LIB_SRCS
-	btdiscovery.cpp
 	cochran.c
 	datatrak.c
 	deco.c
 	device.c
 	dive.c
 	divesite.c
-	divesite.cpp
+	divesite-helper.cpp
 	divelist.c
 	equipment.c
+	errorhelper.c
 	file.c
 	gas-model.c
 	git-access.c
@@ -50,6 +50,11 @@ set(SUBSURFACE_CORE_LIB_SRCS
 	membuffer.c
 	ostctools.c
 	parse-xml.c
+	parse.c
+	import-suunto.c
+	import-shearwater.c
+	import-cobalt.c
+	import-divinglog.c
 	planner.c
 	plannernotes.c
 	profile.c
@@ -91,6 +96,7 @@ set(SUBSURFACE_CORE_LIB_SRCS
 	gpslocation.cpp
 	cloudstorage.cpp
 	downloadfromdcthread.cpp
+	connectionlistmodel.cpp
 
 	#Subsurface Qt have the Subsurface structs QObjectified for easy access via QML.
 	subsurface-qt/DiveObjectHelper.cpp

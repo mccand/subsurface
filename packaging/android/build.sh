@@ -64,7 +64,11 @@ while [ "$#" -gt 0 ] ; do
 		arm|x86)
 			ARCH=$1
 			shift
-		;;
+			;;
+		*)
+			echo "Unknown argument $1"
+			exit 1
+			;;
 	esac
 done
 
@@ -328,7 +332,7 @@ fi
 if [ ! -e "$PKG_CONFIG_LIBDIR/libdivecomputer.pc" ] ; then
 	mkdir -p libdivecomputer-build-"$ARCH"
 	pushd libdivecomputer-build-"$ARCH"
-	"$SUBSURFACE_SOURCE"/../libdivecomputer/configure --host=${BUILDCHAIN} --prefix="$PREFIX" --enable-static --disable-shared --enable-examples=no
+	"$SUBSURFACE_SOURCE"/libdivecomputer/configure --host=${BUILDCHAIN} --prefix="$PREFIX" --enable-static --disable-shared --enable-examples=no
 	make
 	make install
 	popd
@@ -384,7 +388,6 @@ cmake $MOBILE_CMAKE \
 	-DFORCE_LIBSSH=OFF \
 	-DLIBDC_FROM_PKGCONFIG=ON \
 	-DLIBGIT2_FROM_PKGCONFIG=ON \
-	-DNO_MARBLE=ON \
 	-DNO_PRINTING=ON \
 	-DNO_USERMANUAL=ON \
 	-DFBSUPPORT=OFF \

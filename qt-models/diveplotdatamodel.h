@@ -5,6 +5,7 @@
 #include <QAbstractTableModel>
 
 #include "core/display.h"
+#include "core/dive.h"
 
 struct dive;
 struct plot_data;
@@ -20,7 +21,6 @@ public:
 		TEMPERATURE,
 		USERENTERED,
 		COLOR,
-		CYLINDERINDEX,
 		SENSOR_PRESSURE,
 		INTERPOLATED_PRESSURE,
 		SAC,
@@ -92,6 +92,7 @@ private:
 	struct plot_info pInfo;
 	int diveId;
 	unsigned int dcNr;
+	struct deco_state plot_deco_state;
 };
 
 #endif // DIVEPLOTDATAMODEL_H

@@ -66,11 +66,10 @@ set(SUBSURFACE_INTERFACE
 	diveplanner.cpp
 	diveshareexportdialog.cpp
 	downloadfromdivecomputer.cpp
-	globe.cpp
 	kmessagewidget.cpp
 	mainwindow.cpp
 	mapwidget.cpp
-	../mobile-widgets/qmlmapwidgethelper.cpp
+	../map-widget/qmlmapwidgethelper.cpp
 	modeldelegates.cpp
 	notificationwidget.cpp
 	simplewidgets.cpp
@@ -135,4 +134,4 @@ target_link_libraries(subsurface_statistics ${QT_LIBRARIES})
 add_library(subsurface_generated_ui STATIC ${SUBSURFACE_UI_HDRS})
 target_link_libraries(subsurface_generated_ui ${QT_LIBRARIES})
 add_library(subsurface_interface STATIC ${SUBSURFACE_INTERFACE} ${SUBSURFACE_UI_SRCS})
-target_link_libraries(subsurface_interface ${QT_LIBRARIES} ${MARBLE_LIBRARIES} ${GRANTLEE_LIBRARIES} subsurface_desktop_preferences)
+target_link_libraries(subsurface_interface ${QT_LIBRARIES} ${GRANTLEE_LIBRARIES} subsurface_desktop_preferences)

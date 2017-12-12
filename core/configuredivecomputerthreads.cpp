@@ -79,13 +79,12 @@
 #define SUUNTO_VYPER_ALARM_DEPTH_TIME     0x65
 #define SUUNTO_VYPER_ALARM_TIME           0x66
 #define SUUNTO_VYPER_ALARM_DEPTH          0x68
-#define SUUNTO_VYPER_CUSTOM_TEXT_LENGHT   30
+#define SUUNTO_VYPER_CUSTOM_TEXT_LENGTH   30
 
 #ifdef DEBUG_OSTC
 // Fake io to ostc memory banks
 #define hw_ostc_device_eeprom_read local_hw_ostc_device_eeprom_read
 #define hw_ostc_device_eeprom_write local_hw_ostc_device_eeprom_write
-#define hw_ostc_device_clock local_hw_ostc_device_clock
 #define OSTC_FILE "../OSTC-data-dump.bin"
 
 // Fake the open function.
@@ -125,10 +124,6 @@ static dc_status_t local_hw_ostc_device_eeprom_write(void *ignored, unsigned cha
 	return DC_STATUS_SUCCESS;
 }
 
-static dc_status_t local_hw_ostc_device_clock(void *ignored, dc_datetime_t *time)
-{
-	return DC_STATUS_SUCCESS;
-}
 #endif
 
 static int read_ostc_cf(unsigned char data[], unsigned char cf)
@@ -153,7 +148,7 @@ static void write_ostc_cf(unsigned char data[], unsigned char cf, unsigned char 
 
 static dc_status_t read_suunto_vyper_settings(dc_device_t *device, DeviceDetails *m_deviceDetails, dc_event_callback_t progress_cb, void *userdata)
 {
-	unsigned char data[SUUNTO_VYPER_CUSTOM_TEXT_LENGHT + 1];
+	unsigned char data[SUUNTO_VYPER_CUSTOM_TEXT_LENGTH + 1];
 	dc_status_t rc;
 	dc_event_progress_t progress;
 	progress.current = 0;
@@ -209,10 +204,10 @@ static dc_status_t read_suunto_vyper_settings(dc_device_t *device, DeviceDetails
 	m_deviceDetails->serialNo = QString::number(serial_number);
 	EMIT_PROGRESS();
 
-	rc = dc_device_read(device, SUUNTO_VYPER_CUSTOM_TEXT, data, SUUNTO_VYPER_CUSTOM_TEXT_LENGHT);
+	rc = dc_device_read(device, SUUNTO_VYPER_CUSTOM_TEXT, data, SUUNTO_VYPER_CUSTOM_TEXT_LENGTH);
 	if (rc != DC_STATUS_SUCCESS)
 		return rc;
-	data[SUUNTO_VYPER_CUSTOM_TEXT_LENGHT] = 0;
+	data[SUUNTO_VYPER_CUSTOM_TEXT_LENGTH] = 0;
 	m_deviceDetails->customText = (const char *)data;
 	EMIT_PROGRESS();
 
@@ -299,7 +294,7 @@ static dc_status_t write_suunto_vyper_settings(dc_device_t *device, DeviceDetail
 	rc = dc_device_write(device, SUUNTO_VYPER_CUSTOM_TEXT,
 			     // Convert the customText to a 30 char wide padded with " "
 			     (const unsigned char *)QString("%1").arg(m_deviceDetails->customText, -30, QChar(' ')).toUtf8().data(),
-			     SUUNTO_VYPER_CUSTOM_TEXT_LENGHT);
+			     SUUNTO_VYPER_CUSTOM_TEXT_LENGTH);
 	if (rc != DC_STATUS_SUCCESS)
 		return rc;
 	EMIT_PROGRESS();
@@ -892,7 +887,7 @@ static dc_status_t write_ostc4_settings(dc_device_t *device, DeviceDetails *m_de
 		dc_datetime_t now;
 		dc_datetime_localtime(&now, dc_datetime_now());
 
-		rc = hw_ostc3_device_clock(device, &now);
+		rc = dc_device_timesync(device, &now);
 	}
 
 	EMIT_PROGRESS();
@@ -1435,7 +1430,7 @@ static dc_status_t write_ostc3_settings(dc_device_t *device, DeviceDetails *m_de
 		dc_datetime_t now;
 		dc_datetime_localtime(&now, dc_datetime_now());
 
-		rc = hw_ostc3_device_clock(device, &now);
+		rc = dc_device_timesync(device, &now);
 	}
 	EMIT_PROGRESS();
 
@@ -2079,14 +2074,15 @@ static dc_status_t write_ostc_settings(dc_device_t *device, DeviceDetails *m_dev
 	//sync date and time
 	if (m_deviceDetails->syncTime) {
 		QDateTime timeToSet = QDateTime::currentDateTime();
-		dc_datetime_t time;
+		dc_datetime_t time = { 0 };
 		time.year = timeToSet.date().year();
 		time.month = timeToSet.date().month();
 		time.day = timeToSet.date().day();
 		time.hour = timeToSet.time().hour();
 		time.minute = timeToSet.time().minute();
 		time.second = timeToSet.time().second();
-		rc = hw_ostc_device_clock(device, &time);
+		time.timezone = DC_TIMEZONE_NONE;
+		rc = dc_device_timesync(device, &time);
 	}
 	EMIT_PROGRESS();
 	return rc;

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
 import QtQuick 2.6
-import QtQuick.Controls 2.0
+import QtQuick.Controls 2.2 as Controls
 import QtQuick.Layouts 1.2
 import QtQuick.Window 2.2
 import QtQuick.Dialogs 1.2
-import org.kde.kirigami 2.0 as Kirigami
+import org.kde.kirigami 2.2 as Kirigami
 import org.subsurfacedivelog.mobile 1.0
 
 Kirigami.ScrollablePage {
@@ -24,7 +24,7 @@ Kirigami.ScrollablePage {
 	supportsRefreshing: true
 	onRefreshingChanged: {
 		if (refreshing) {
-			if (manager.credentialStatus === QMLManager.VALID || manager.credentialStatus === QMLManager.VALID_EMAIL) {
+			if (manager.credentialStatus === QMLManager.CS_VERIFIED) {
 				console.log("User pulled down dive list - syncing with cloud storage")
 				detailsWindow.endEditMode()
 				manager.saveChangesCloud(true)
@@ -86,18 +86,20 @@ Kirigami.ScrollablePage {
 				Item {
 					id: diveListEntry
 					width: parent.width - Kirigami.Units.gridUnit * (innerListItem.deleteButtonVisible ? 3 : 1)
-					height: childrenRect.height - Kirigami.Units.smallSpacing
+					height: childrenRect.height + Kirigami.Units.smallSpacing
 					anchors.left: leftBarDive.right
-					Kirigami.Label {
+					Controls.Label {
 						id: locationText
 						text: dive.location
 						font.weight: Font.Bold
+						font.pointSize: subsurfaceTheme.regularPointSize
 						elide: Text.ElideRight
 						maximumLineCount: 1 // needed for elide to work at all
 						color: textColor
 						anchors {
 							left: parent.left
 							leftMargin: horizontalPadding * 2
+							topMargin: Kirigami.Units.smallSpacing
 							top: parent.top
 							right: parent.right
 						}
@@ -106,11 +108,11 @@ Kirigami.ScrollablePage {
 						anchors {
 							left: locationText.left
 							top: locationText.bottom
-							topMargin: - Kirigami.Units.smallSpacing * 2
+							topMargin: Kirigami.Units.smallSpacing
 							bottom: numberText.bottom
 						}
 
-						Kirigami.Label {
+						Controls.Label {
 							id: dateLabel
 							text: dive.date + " " + dive.time
 							width: Math.max(locationText.width * 0.45, paintedWidth) // helps vertical alignment throughout listview
@@ -118,14 +120,14 @@ Kirigami.ScrollablePage {
 							color: innerListItem.checked ? subsurfaceTheme.darkerPrimaryTextColor : secondaryTextColor
 						}
 						// let's try to show the depth / duration very compact
-						Kirigami.Label {
+						Controls.Label {
 							text: dive.depth + ' / ' + dive.duration
 							width: Math.max(Kirigami.Units.gridUnit * 3, paintedWidth) // helps vertical alignment throughout listview
 							font.pointSize: subsurfaceTheme.smallPointSize
 							color: innerListItem.checked ? subsurfaceTheme.darkerPrimaryTextColor : secondaryTextColor
 						}
 					}
-					Kirigami.Label {
+					Controls.Label {
 						id: numberText
 						text: "#" + dive.number
 						font.pointSize: subsurfaceTheme.smallPointSize
@@ -134,7 +136,7 @@ Kirigami.ScrollablePage {
 							right: parent.right
 							rightMargin: horizontalPadding
 							top: locationText.bottom
-							topMargin: - Kirigami.Units.smallSpacing * 2
+							topMargin: Kirigami.Units.smallSpacing
 						}
 					}
 				}
@@ -162,6 +164,7 @@ Kirigami.ScrollablePage {
 						onClicked: {
 							parent.visible = false
 							timer.stop()
+							detailsWindow.showDiveIndex(index)
 							manager.deleteDive(dive.id)
 						}
 					}
@@ -182,7 +185,7 @@ Kirigami.ScrollablePage {
 	Component {
 		id: tripHeading
 		Item {
-			width: page.width - Kirigami.Units.gridUnit
+			width: page.width
 			height: childrenRect.height - Kirigami.Units.smallSpacing
 			Rectangle {
 				id: headingBackground
@@ -190,7 +193,6 @@ Kirigami.ScrollablePage {
 				anchors {
 					left: parent.left
 					right: parent.right
-					rightMargin: Kirigami.Units.gridUnit * -2
 				}
 				color: subsurfaceTheme.lightPrimaryColor
 				visible: section != ""
@@ -207,7 +209,7 @@ Kirigami.ScrollablePage {
 						left: parent.left
 						leftMargin: Kirigami.Units.smallSpacing
 					}
-					Label {
+					Controls.Label {
 						text: {	section.replace(/.*\+\+/, "").replace(/::.*/, "").replace("@", "\n'") }
 						color: subsurfaceTheme.primaryTextColor
 						font.pointSize: subsurfaceTheme.smallPointSize
@@ -221,7 +223,7 @@ Kirigami.ScrollablePage {
 					}
 				}
 
-				Kirigami.Label {
+				Controls.Label {
 					id: sectionText
 					text: {
 						// if the tripMeta (which we get as "section") ends in ::-- we know
@@ -265,37 +267,39 @@ Kirigami.ScrollablePage {
 	StartPage {
 		id: startPage
 		anchors.fill: parent
-		opacity: credentialStatus === QMLManager.NOCLOUD || (credentialStatus === QMLManager.VALID || credentialStatus === QMLManager.VALID_EMAIL) ? 0 : 1
+		opacity: credentialStatus === QMLManager.CS_NOCLOUD || (credentialStatus === QMLManager.CS_VERIFIED) ? 0 : 1
 		visible: opacity > 0
 		Behavior on opacity { NumberAnimation { duration: Kirigami.Units.shortDuration } }
 		function setupActions() {
 			if (visible) {
-				page.actions.main = page.saveAction
-				page.actions.right = page.offlineAction
-				title = qsTr("Cloud credentials")
-			} else if(manager.credentialStatus === QMLManager.VALID || manager.credentialStatus === QMLManager.VALID_EMAIL || manager.credentialStatus === QMLManager.NOCLOUD) {
+				page.actions.main = null
+				page.actions.right = null
+				page.title = qsTr("Cloud credentials")
+			} else if (manager.credentialStatus === QMLManager.CS_VERIFIED || manager.credentialStatus === QMLManager.CS_NOCLOUD) {
 				page.actions.main = page.downloadFromDCAction
 				page.actions.right = page.addDiveAction
-				title = qsTr("Dive list")
+				page.title = qsTr("Dive list")
 				if (diveListView.count === 0)
 					showPassiveNotification(qsTr("Please tap the '+' button to add a dive (or download dives from a supported dive computer)"), 3000)
 			} else {
 				page.actions.main = null
 				page.actions.right = null
-				title = qsTr("Dive list")
+				page.title = qsTr("Dive list")
 			}
 		}
 		onVisibleChanged: {
 			setupActions();
 		}
+
 		Component.onCompleted: {
+			manager.finishSetup();
 			setupActions();
 		}
 	}
 
 	Text {
 		// make sure this gets pushed far enough down so that it's not obscured by the page title
-		// it would be nicer to use Kirigami.Label, but due to a QML bug that isn't possible with a
+		// it would be nicer to use Controls.Label, but due to a QML bug that isn't possible with a
 		// weird "component versioning" error
 		// using this property means that we require Qt 5.6 / QtQuick2.6
 		topPadding: Kirigami.Units.iconSizes.large
@@ -354,12 +358,13 @@ Kirigami.ScrollablePage {
 		iconName: "qrc:/qml/nocloud.svg"
 		onTriggered: {
 			manager.syncToCloud = false
-			manager.credentialStatus = QMLManager.NOCLOUD
+			manager.credentialStatus = QMLManager.CS_NOCLOUD
+			manager.saveCloudCredentials()
 		}
 	}
 
 	onBackRequested: {
-		if (startPage.visible && diveListView.count > 0 && manager.credentialStatus !== QMLManager.INVALID) {
+		if (startPage.visible && diveListView.count > 0 && manager.credentialStatus !== QMLManager.CS_INCORRECT_USER_PASSWD) {
 			manager.credentialStatus = oldStatus
 			event.accepted = true;
 		}

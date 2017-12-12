@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #include "qt-models/diveplotdatamodel.h"
+#include "qt-models/diveplannermodel.h"
 #include "core/dive.h"
 #include "core/profile.h"
 #include "core/divelist.h"
@@ -39,8 +40,6 @@ QVariant DivePlotDataModel::data(const QModelIndex &index, int role) const
 			return item.velocity;
 		case USERENTERED:
 			return false;
-		case CYLINDERINDEX:
-			return 0;
 		case SENSOR_PRESSURE:
 			return item.pressure[0][0];
 		case INTERPOLATED_PRESSURE:
@@ -123,8 +122,6 @@ QVariant DivePlotDataModel::headerData(int section, Qt::Orientation orientation,
 		return tr("Color");
 	case USERENTERED:
 		return tr("User entered");
-	case CYLINDERINDEX:
-		return tr("Cylinder index");
 	case SENSOR_PRESSURE:
 		return tr("Pressure S");
 	case INTERPOLATED_PRESSURE:
@@ -235,8 +232,8 @@ void DivePlotDataModel::emitDataChanged()
 void DivePlotDataModel::calculateDecompression()
 {
 	struct divecomputer *dc = select_dc(&displayed_dive);
-	init_decompression(&displayed_dive);
-	calculate_deco_information(&displayed_dive, dc, &pInfo, false);
+	init_decompression(&plot_deco_state, &displayed_dive);
+	calculate_deco_information(&plot_deco_state, &(DivePlannerPointsModel::instance()->final_deco_state), &displayed_dive, dc, &pInfo, false);
 	dataChanged(index(0, CEILING), index(pInfo.nr - 1, TISSUE_16));
 }
 #endif

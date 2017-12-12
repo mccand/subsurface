@@ -8,8 +8,10 @@
 
 #include "dive.h"
 #include "libdivecomputer.h"
+#include "connectionlistmodel.h"
+#if BT_SUPPORT
 #include "core/btdiscovery.h"
-
+#endif
 /* Helper object for access of Device Data in QML */
 class DCDeviceData : public QObject {
 	Q_OBJECT
@@ -17,6 +19,7 @@ class DCDeviceData : public QObject {
 	Q_PROPERTY(QString product READ product WRITE setProduct)
 	Q_PROPERTY(bool bluetoothMode READ bluetoothMode WRITE setBluetoothMode)
 	Q_PROPERTY(QString devName READ devName WRITE setDevName)
+	Q_PROPERTY(QString devBluetoothName READ devBluetoothName WRITE setDevBluetoothName)
 	Q_PROPERTY(QString descriptor READ descriptor)
 	Q_PROPERTY(bool forceDownload READ forceDownload WRITE setForceDownload)
 	Q_PROPERTY(bool createNewTrip READ createNewTrip WRITE setCreateNewTrip)
@@ -32,6 +35,7 @@ public:
 	QString vendor() const;
 	QString product() const;
 	QString devName() const;
+	QString devBluetoothName() const;
 	QString descriptor() const;
 	bool bluetoothMode() const;
 	bool forceDownload() const;
@@ -47,16 +51,15 @@ public:
 	Q_INVOKABLE QStringList getProductListFromVendor(const QString& vendor);
 	Q_INVOKABLE int getMatchingAddress(const QString &vendor, const QString &product);
 
-	Q_INVOKABLE int getDetectedVendorIndex(const QString &currentText);
-	Q_INVOKABLE int getDetectedProductIndex(const QString &currentVendorText,
-						const QString &currentProductText);
-	Q_INVOKABLE QString getDetectedDeviceAddress(const QString &currentVendorText,
-						     const QString &currentProductText);
+	Q_INVOKABLE int getDetectedVendorIndex();
+	Q_INVOKABLE int getDetectedProductIndex(const QString &currentVendorText);
+	Q_INVOKABLE QString getDetectedDeviceAddress(const QString &currentProductText);
 
 public slots:
 	void setVendor(const QString& vendor);
 	void setProduct(const QString& product);
 	void setDevName(const QString& devName);
+	void setDevBluetoothName(const QString& devBluetoothName);
 	void setBluetoothMode(bool mode);
 	void setForceDownload(bool force);
 	void setCreateNewTrip(bool create);
@@ -67,6 +70,9 @@ public slots:
 private:
 	static DCDeviceData *m_instance;
 	device_data_t data;
+
+	// Bluetooth name is managed outside of libdivecomputer
+	QString m_devBluetoothName;
 };
 
 class DownloadThread : public QThread {
@@ -101,5 +107,4 @@ extern QStringList vendorList;
 extern QHash<QString, QStringList> productList;
 extern QMap<QString, dc_descriptor_t *> descriptorLookup;
 extern ConnectionListModel connectionListModel;
-
 #endif

@@ -48,9 +48,9 @@ struct preferences default_prefs = {
 	.display_unused_tanks = false,
 	.show_average_depth = true,
 	.ascrate75 = 9000 / 60,
-	.ascrate50 = 6000 / 60,
-	.ascratestops = 6000 / 60,
-	.ascratelast6m = 1000 / 60,
+	.ascrate50 = 9000 / 60,
+	.ascratestops = 9000 / 60,
+	.ascratelast6m = 9000 / 60,
 	.descrate = 18000 / 60,
 	.sacfactor = 400,
 	.problemsolvingtime = 4,
@@ -66,6 +66,7 @@ struct preferences default_prefs = {
 	.display_runtime = true,
 	.display_duration = true,
 	.display_transitions = true,
+	.display_variations = false,
 	.safetystop = true,
 	.bottomsac = 20000,
 	.decosac = 17000,
@@ -82,9 +83,6 @@ struct preferences default_prefs = {
 	.defaultsetpoint = 1100,
 	.cloud_background_sync = true,
 	.geocoding = {
-		.enable_geocoding = true,
-		.parse_dive_without_gps = false,
-		.tag_existing_dives = false,
 		.category = { 0 }
 	},
 	.locale = {
@@ -92,8 +90,8 @@ struct preferences default_prefs = {
 	},
 	.planner_deco_mode = BUEHLMANN,
 	.vpmb_conservatism = 3,
-	.distance_threshold = 1000,
-	.time_threshold = 600,
+	.distance_threshold = 100,
+	.time_threshold = 300,
 #if defined(SUBSURFACE_MOBILE)
 	.cloud_timeout = 10,
 #else
@@ -150,10 +148,18 @@ const char *monthname(int mon)
  */
 bool imported = false;
 
-static void print_version()
+bool version_printed = false;
+void print_version()
 {
-	printf("Subsurface v%s, ", subsurface_git_version());
+	if (version_printed)
+		return;
+	printf("Subsurface v%s,\n", subsurface_git_version());
 	printf("built with libdivecomputer v%s\n", dc_version(NULL));
+	print_qt_versions();
+	int git_maj, git_min, git_rev;
+	git_libgit2_version(&git_maj, &git_min, &git_rev);
+	printf("built with libgit2 %d.%d.%d\n", git_maj, git_min, git_rev);
+	version_printed = true;
 }
 
 void print_files()
@@ -162,20 +168,24 @@ void print_files()
 	const char *remote = 0;
 	const char *filename, *local_git;
 
-	filename = cloud_url();
-
-	is_git_repository(filename, &branch, &remote, true);
 	printf("\nFile locations:\n\n");
+	if (!same_string(prefs.cloud_storage_email, "") && !same_string(prefs.cloud_storage_password, "")) {
+		filename = cloud_url();
+
+		is_git_repository(filename, &branch, &remote, true);
+	} else {
+		/* strdup so the free below works in either case */
+		filename = strdup("No valid cloud credentials set.\n");
+	}
 	if (branch && remote) {
 		local_git = get_local_dir(remote, branch);
 		printf("Local git storage: %s\n", local_git);
 	} else {
 		printf("Unable to get local git directory\n");
 	}
-	char *tmp = cloud_url();
-	printf("Cloud URL: %s\n", tmp);
-	free(tmp);
-	tmp = hashfile_name_string();
+	printf("Cloud URL: %s\n", filename);
+	free((void *)filename);
+	char *tmp = hashfile_name_string();
 	printf("Image hashes: %s\n", tmp);
 	free(tmp);
 	tmp = picturedir_string();
@@ -195,8 +205,6 @@ static void print_help()
 	printf("\n --survey              Offer to submit a user survey");
 	printf("\n --user=<test>         Choose configuration space for user <test>");
 	printf("\n --cloud-timeout=<nr>  Set timeout for cloud connection (0 < timeout < 60)");
-	printf("\n --win32console        Create a dedicated console if needed (Windows only). Add option before everything else");
-	printf("\n --win32log            Write the program output to subsurface.log (Windows only). Add option before everything else\n\n");
 }
 
 void parse_argument(const char *arg)
@@ -209,6 +217,7 @@ void parse_argument(const char *arg)
 			print_help();
 			exit(0);
 		case 'v':
+			print_version();
 			verbose++;
 			continue;
 		case 'q':
@@ -237,6 +246,7 @@ void parse_argument(const char *arg)
 				return;
 			}
 			if (strcmp(arg, "--verbose") == 0) {
+				print_version();
 				verbose++;
 				return;
 			}
@@ -252,10 +262,6 @@ void parse_argument(const char *arg)
 				++force_root;
 				return;
 			}
-			if (strcmp(arg, "--win32console") == 0)
-				return;
-			if (strcmp(arg, "--win32log") == 0)
-				return;
 		/* fallthrough */
 		case 'p':
 			/* ignore process serial number argument when run as native macosx app */
@@ -289,7 +295,7 @@ void setup_system_prefs(void)
 	default_prefs.font_size = system_divelist_default_font_size;
 
 #if !defined(SUBSURFACE_MOBILE)
-	default_prefs.default_filename = system_default_filename();
+	default_prefs.default_filename = copy_string(system_default_filename());
 #endif
 	env = getenv("LC_MEASUREMENT");
 	if (!env)

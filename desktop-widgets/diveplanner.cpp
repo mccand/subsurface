@@ -76,7 +76,7 @@ void DiveHandler::changeGas()
 {
 	QAction *action = qobject_cast<QAction *>(sender());
 	QModelIndex index = plannerModel->index(parentIndex(), DivePlannerPointsModel::GAS);
-	plannerModel->gaschange(index.sibling(index.row() + 1, index.column()), action->data().toInt());
+	plannerModel->gasChange(index.sibling(index.row() + 1, index.column()), action->data().toInt());
 }
 
 void DiveHandler::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
@@ -250,16 +250,25 @@ void PlannerSettingsWidget::decoSacChanged(const double decosac)
 void PlannerSettingsWidget::disableDecoElements(int mode)
 {
 	if (mode == RECREATIONAL) {
+		ui.label_gflow->setDisabled(false);
+		ui.label_gfhigh->setDisabled(false);
 		ui.gflow->setDisabled(false);
 		ui.gfhigh->setDisabled(false);
 		ui.lastStop->setDisabled(true);
 		ui.backgasBreaks->setDisabled(true);
+		ui.backgasBreaks->blockSignals(true);
+		ui.backgasBreaks->setChecked(false);
+		ui.backgasBreaks->blockSignals(false);
 		ui.bottompo2->setDisabled(false);
 		ui.decopo2->setDisabled(true);
+		ui.safetystop->setDisabled(false);
+		ui.label_reserve_gas->setDisabled(false);
 		ui.reserve_gas->setDisabled(false);
+		ui.label_vpmb_conservatism->setDisabled(true);
 		ui.vpmb_conservatism->setDisabled(true);
 		ui.switch_at_req_stop->setDisabled(true);
 		ui.min_switch_duration->setDisabled(true);
+		ui.label_min_switch_duration->setDisabled(true);
 		ui.sacfactor->setDisabled(true);
 		ui.problemsolvingtime->setDisabled(true);
 		ui.sacfactor->blockSignals(true);
@@ -268,38 +277,91 @@ void PlannerSettingsWidget::disableDecoElements(int mode)
 		ui.problemsolvingtime->setValue(0);
 		ui.sacfactor->blockSignals(false);
 		ui.problemsolvingtime->blockSignals(false);
+		ui.display_variations->setDisabled(true);
 	}
 	else if (mode == VPMB) {
+		ui.label_gflow->setDisabled(true);
+		ui.label_gfhigh->setDisabled(true);
 		ui.gflow->setDisabled(true);
 		ui.gfhigh->setDisabled(true);
 		ui.lastStop->setDisabled(false);
-		ui.backgasBreaks->setDisabled(false);
+		if (prefs.last_stop) {
+			ui.backgasBreaks->setDisabled(false);
+			ui.backgasBreaks->blockSignals(true);
+			ui.backgasBreaks->setChecked(prefs.doo2breaks);
+			ui.backgasBreaks->blockSignals(false);
+		} else {
+			ui.backgasBreaks->setDisabled(true);
+			ui.backgasBreaks->blockSignals(true);
+			ui.backgasBreaks->setChecked(false);
+			ui.backgasBreaks->blockSignals(false);
+		}
 		ui.bottompo2->setDisabled(false);
 		ui.decopo2->setDisabled(false);
+		ui.safetystop->setDisabled(true);
+		ui.label_reserve_gas->setDisabled(true);
 		ui.reserve_gas->setDisabled(true);
+		ui.label_vpmb_conservatism->setDisabled(false);
 		ui.vpmb_conservatism->setDisabled(false);
 		ui.switch_at_req_stop->setDisabled(false);
 		ui.min_switch_duration->setDisabled(false);
+		ui.label_min_switch_duration->setDisabled(false);
 		ui.sacfactor->setDisabled(false);
 		ui.problemsolvingtime->setDisabled(false);
 		ui.sacfactor->setValue(prefs.sacfactor / 100.0);
 		ui.problemsolvingtime->setValue(prefs.problemsolvingtime);
+		ui.display_variations->setDisabled(false);
 	}
 	else if (mode == BUEHLMANN) {
+		ui.label_gflow->setDisabled(false);
+		ui.label_gfhigh->setDisabled(false);
 		ui.gflow->setDisabled(false);
 		ui.gfhigh->setDisabled(false);
 		ui.lastStop->setDisabled(false);
-		ui.backgasBreaks->setDisabled(false);
+		if (prefs.last_stop) {
+			ui.backgasBreaks->setDisabled(false);
+			ui.backgasBreaks->blockSignals(true);
+			ui.backgasBreaks->setChecked(prefs.doo2breaks);
+			ui.backgasBreaks->blockSignals(false);
+		} else {
+			ui.backgasBreaks->setDisabled(true);
+			ui.backgasBreaks->blockSignals(true);
+			ui.backgasBreaks->setChecked(false);
+			ui.backgasBreaks->blockSignals(false);
+		}
 		ui.bottompo2->setDisabled(false);
 		ui.decopo2->setDisabled(false);
+		ui.safetystop->setDisabled(true);
+		ui.label_reserve_gas->setDisabled(true);
 		ui.reserve_gas->setDisabled(true);
+		ui.label_vpmb_conservatism->setDisabled(true);
 		ui.vpmb_conservatism->setDisabled(true);
 		ui.switch_at_req_stop->setDisabled(false);
 		ui.min_switch_duration->setDisabled(false);
+		ui.label_min_switch_duration->setDisabled(false);
 		ui.sacfactor->setDisabled(false);
 		ui.problemsolvingtime->setDisabled(false);
 		ui.sacfactor->setValue(prefs.sacfactor / 100.0);
 		ui.problemsolvingtime->setValue(prefs.problemsolvingtime);
+		ui.display_variations->setDisabled(false);
+	}
+}
+
+void PlannerSettingsWidget::disableBackgasBreaks(bool enabled)
+{
+	if (prefs.planner_deco_mode == RECREATIONAL)
+		return;
+
+	if (enabled) {
+		ui.backgasBreaks->setDisabled(false);
+		ui.backgasBreaks->blockSignals(true);
+		ui.backgasBreaks->setChecked(prefs.doo2breaks);
+		ui.backgasBreaks->blockSignals(false);
+	} else {
+		ui.backgasBreaks->setDisabled(true);
+		ui.backgasBreaks->blockSignals(true);
+		ui.backgasBreaks->setChecked(false);
+		ui.backgasBreaks->blockSignals(false);
 	}
 }
 
@@ -322,6 +384,7 @@ PlannerSettingsWidget::PlannerSettingsWidget(QWidget *parent, Qt::WindowFlags f)
 	ui.display_duration->setChecked(prefs.display_duration);
 	ui.display_runtime->setChecked(prefs.display_runtime);
 	ui.display_transitions->setChecked(prefs.display_transitions);
+	ui.display_variations->setChecked(prefs.display_variations);
 	ui.safetystop->setChecked(prefs.safetystop);
 	ui.sacfactor->setValue(prefs.sacfactor / 100.0);
 	ui.problemsolvingtime->setValue(prefs.problemsolvingtime);
@@ -351,22 +414,19 @@ PlannerSettingsWidget::PlannerSettingsWidget(QWidget *parent, Qt::WindowFlags f)
 	connect(ui.vpmb_deco, SIGNAL(clicked()), modeMapper, SLOT(map()));
 
 	connect(ui.lastStop, SIGNAL(toggled(bool)), plannerModel, SLOT(setLastStop6m(bool)));
+	connect(ui.lastStop, SIGNAL(toggled(bool)), this, SLOT(disableBackgasBreaks(bool)));
 	connect(ui.verbatim_plan, SIGNAL(toggled(bool)), plannerModel, SLOT(setVerbatim(bool)));
 	connect(ui.display_duration, SIGNAL(toggled(bool)), plannerModel, SLOT(setDisplayDuration(bool)));
 	connect(ui.display_runtime, SIGNAL(toggled(bool)), plannerModel, SLOT(setDisplayRuntime(bool)));
 	connect(ui.display_transitions, SIGNAL(toggled(bool)), plannerModel, SLOT(setDisplayTransitions(bool)));
+	connect(ui.display_variations, SIGNAL(toggled(bool)), plannerModel, SLOT(setDisplayVariations(bool)));
 	connect(ui.safetystop, SIGNAL(toggled(bool)), plannerModel, SLOT(setSafetyStop(bool)));
 	connect(ui.reserve_gas, SIGNAL(valueChanged(int)), plannerModel, SLOT(setReserveGas(int)));
-	connect(ui.ascRate75, SIGNAL(valueChanged(int)), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRate50, SIGNAL(valueChanged(int)), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRateStops, SIGNAL(valueChanged(int)), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRateLast6m, SIGNAL(valueChanged(int)), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.descRate, SIGNAL(valueChanged(int)), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRate75, SIGNAL(editingFinished()), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRate50, SIGNAL(editingFinished()), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRateStops, SIGNAL(editingFinished()), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.ascRateLast6m, SIGNAL(editingFinished()), plannerModel, SLOT(emitDataChanged()));
-	connect(ui.descRate, SIGNAL(editingFinished()), plannerModel, SLOT(emitDataChanged()));
+	connect(ui.ascRate75, SIGNAL(valueChanged(int)), plannerModel, SLOT(setAscrate75(int)));
+	connect(ui.ascRate50, SIGNAL(valueChanged(int)), plannerModel, SLOT(setAscrate50(int)));
+	connect(ui.ascRateStops, SIGNAL(valueChanged(int)), plannerModel, SLOT(setAscratestops(int)));
+	connect(ui.ascRateLast6m, SIGNAL(valueChanged(int)), plannerModel, SLOT(setAscratelast6m(int)));
+	connect(ui.descRate, SIGNAL(valueChanged(int)), plannerModel, SLOT(setDescrate(int)));
 	connect(ui.drop_stone_mode, SIGNAL(toggled(bool)), plannerModel, SLOT(setDropStoneMode(bool)));
 	connect(ui.gfhigh, SIGNAL(valueChanged(int)), plannerModel, SLOT(setGFHigh(int)));
 	connect(ui.gflow, SIGNAL(valueChanged(int)), plannerModel, SLOT(setGFLow(int)));
@@ -382,11 +442,11 @@ PlannerSettingsWidget::PlannerSettingsWidget(QWidget *parent, Qt::WindowFlags f)
 	connect(ui.bestmixEND, SIGNAL(valueChanged(int)), CylindersModel::instance(), SLOT(updateBestMixes()));
 
 	connect(modeMapper, SIGNAL(mapped(int)), this, SLOT(disableDecoElements(int)));
-	connect(ui.ascRate75, SIGNAL(valueChanged(int)), this, SLOT(setAscRate75(int)));
-	connect(ui.ascRate50, SIGNAL(valueChanged(int)), this, SLOT(setAscRate50(int)));
-	connect(ui.descRate, SIGNAL(valueChanged(int)), this, SLOT(setDescRate(int)));
-	connect(ui.ascRateStops, SIGNAL(valueChanged(int)), this, SLOT(setAscRateStops(int)));
-	connect(ui.ascRateLast6m, SIGNAL(valueChanged(int)), this, SLOT(setAscRateLast6m(int)));
+	connect(ui.ascRate75, SIGNAL(valueChanged(int)), this, SLOT(setAscrate75(int)));
+	connect(ui.ascRate50, SIGNAL(valueChanged(int)), this, SLOT(setAscrate50(int)));
+	connect(ui.descRate, SIGNAL(valueChanged(int)), this, SLOT(setDescrate(int)));
+	connect(ui.ascRateStops, SIGNAL(valueChanged(int)), this, SLOT(setAscratestops(int)));
+	connect(ui.ascRateLast6m, SIGNAL(valueChanged(int)), this, SLOT(setAscratelast6m(int)));
 	connect(ui.sacfactor, SIGNAL(valueChanged(double)), this, SLOT(sacFactorChanged(double)));
 	connect(ui.problemsolvingtime, SIGNAL(valueChanged(int)), this, SLOT(problemSolvingTimeChanged(int)));
 	connect(ui.bottompo2, SIGNAL(valueChanged(double)), this, SLOT(setBottomPo2(double)));
@@ -399,6 +459,14 @@ PlannerSettingsWidget::PlannerSettingsWidget(QWidget *parent, Qt::WindowFlags f)
 	ui.gflow->setValue(prefs.gflow);
 	ui.gfhigh->setValue(prefs.gfhigh);
 	ui.vpmb_conservatism->setValue(prefs.vpmb_conservatism);
+
+	ui.ascRate75->setKeyboardTracking(false);
+	ui.ascRate50->setKeyboardTracking(false);
+	ui.ascRateLast6m->setKeyboardTracking(false);
+	ui.ascRateStops->setKeyboardTracking(false);
+	ui.descRate->setKeyboardTracking(false);
+	ui.gfhigh->setKeyboardTracking(false);
+	ui.gflow->setKeyboardTracking(false);
 
 	setMinimumWidth(0);
 	setMinimumHeight(0);
@@ -482,27 +550,27 @@ void PlannerSettingsWidget::printDecoPlan()
 {
 }
 
-void PlannerSettingsWidget::setAscRate75(int rate)
+void PlannerSettingsWidget::setAscrate75(int rate)
 {
 	SettingsObjectWrapper::instance()->planner_settings->setAscrate75(lrint(rate * UNIT_FACTOR));
 }
 
-void PlannerSettingsWidget::setAscRate50(int rate)
+void PlannerSettingsWidget::setAscrate50(int rate)
 {
 	SettingsObjectWrapper::instance()->planner_settings->setAscrate50(lrint(rate * UNIT_FACTOR));
 }
 
-void PlannerSettingsWidget::setAscRateStops(int rate)
+void PlannerSettingsWidget::setAscratestops(int rate)
 {
 	SettingsObjectWrapper::instance()->planner_settings->setAscratestops(lrint(rate * UNIT_FACTOR));
 }
 
-void PlannerSettingsWidget::setAscRateLast6m(int rate)
+void PlannerSettingsWidget::setAscratelast6m(int rate)
 {
 	SettingsObjectWrapper::instance()->planner_settings->setAscratelast6m(lrint(rate * UNIT_FACTOR));
 }
 
-void PlannerSettingsWidget::setDescRate(int rate)
+void PlannerSettingsWidget::setDescrate(int rate)
 {
 	SettingsObjectWrapper::instance()->planner_settings->setDescrate(lrint(rate * UNIT_FACTOR));
 }

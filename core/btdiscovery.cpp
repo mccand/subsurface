@@ -10,47 +10,6 @@ extern QMap<QString, dc_descriptor_t *> descriptorLookup;
 
 BTDiscovery *BTDiscovery::m_instance = NULL;
 
-ConnectionListModel::ConnectionListModel(QObject *parent) :
-	QAbstractListModel(parent)
-{
-}
-
-QHash <int, QByteArray> ConnectionListModel::roleNames() const
-{
-	QHash<int, QByteArray> roles;
-	roles[AddressRole] = "address";
-	return roles;
-}
-
-QVariant ConnectionListModel::data(const QModelIndex &index, int role) const
-{
-	if (index.row() < 0 || index.row() >= m_addresses.count())
-		return QVariant();
-	if (role != AddressRole)
-		return QVariant();
-	return m_addresses[index.row()];
-}
-
-QString ConnectionListModel::address(int idx) const
-{
-	if (idx < 0 || idx >> m_addresses.count())
-		return QString();
-	return m_addresses[idx];
-}
-
-int ConnectionListModel::rowCount(const QModelIndex &parent) const
-{
-	Q_UNUSED(parent)
-	return m_addresses.count();
-}
-
-void ConnectionListModel::addAddress(const QString address)
-{
-	beginInsertRows(QModelIndex(), rowCount(), rowCount());
-	m_addresses.append(address);
-	endInsertRows();
-}
-
 static dc_descriptor_t *getDeviceType(QString btName)
 // central function to convert a BT name to a Subsurface known vendor/model pair
 {
@@ -81,13 +40,14 @@ static dc_descriptor_t *getDeviceType(QString btName)
 		product = "EON Steel";
 	}
 
-	if (btName.startsWith("G2")) {
+	if (btName.startsWith("G2")  || btName.startsWith("Aladin")) {
 		vendor = "Scubapro";
-		product = "G2";
+		if (btName.startsWith("G2")) product = "G2";
+		if (btName.startsWith("Aladin")) product = "Aladin Sport Matrix";
 	}
 
 	if (!vendor.isEmpty() && !product.isEmpty())
-		return(descriptorLookup[vendor + product]);
+		return(descriptorLookup.value(vendor + product));
 
 	return(NULL);
 }
@@ -101,22 +61,31 @@ BTDiscovery::BTDiscovery(QObject *parent)
 	}
 	m_instance = this;
 #if defined(BT_SUPPORT)
+	BTDiscoveryReDiscover();
+#endif
+}
+
+void BTDiscovery::BTDiscoveryReDiscover()
+{
 #if !defined(Q_OS_IOS)
 	if (localBtDevice.isValid() &&
 	    localBtDevice.hostMode() == QBluetoothLocalDevice::HostConnectable) {
 		btPairedDevices.clear();
 		qDebug() <<  "localDevice " + localBtDevice.name() + " is valid, starting discovery";
-		m_btValid = true;
 #else
-	m_btValid = false;
+	// for iOS we can't use the localBtDevice as iOS is BLE only
+	// we need to find some other way to test if Bluetooth is enabled, though
+	// for now just hard-code it
+	if (1) {
 #endif
+		m_btValid = true;
 #if defined(Q_OS_IOS) || (defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID))
 		discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
 		connect(discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered, this, &BTDiscovery::btDeviceDiscovered);
 		qDebug() << "starting BLE discovery";
 		discoveryAgent->start();
 #endif
-#if defined(Q_OS_ANDROID) && defined(BT_SUPPORT)
+#if defined(Q_OS_ANDROID)
 		getBluetoothDevices();
 		// and add the paired devices to the internal data
 		// So behaviour is same on Linux/Bluez stack and
@@ -135,13 +104,10 @@ BTDiscovery::BTDiscovery(QObject *parent)
 		connect(&timer, &QTimer::timeout, discoveryAgent, &QBluetoothDeviceDiscoveryAgent::stop);
 		timer.start(3000);
 #endif
-#if !defined(Q_OS_IOS)
 	} else {
-		qDebug() << "localBtDevice isn't valid";
+		qDebug() << "localBtDevice isn't valid or not connectable";
 		m_btValid = false;
 	}
-#endif
-#endif
 }
 
 BTDiscovery::~BTDiscovery()
@@ -166,19 +132,20 @@ extern void addBtUuid(QBluetoothUuid uuid);
 extern QHash<QString, QStringList> productList;
 extern QStringList vendorList;
 
+QString btDeviceAddress(const QBluetoothDeviceInfo *device, bool isBle)
+{
+	QString address = device->address().isNull() ?
+		device->deviceUuid().toString() : device->address().toString();
+	const char *prefix = isBle ? "LE:" : "";
+	return prefix + address;
+}
+
 QString markBLEAddress(const QBluetoothDeviceInfo *device)
 {
-	QBluetoothDeviceInfo::CoreConfigurations flags;
-	QString prefix = "";
+	QBluetoothDeviceInfo::CoreConfigurations flags = device->coreConfigurations();
+	bool isBle = flags == QBluetoothDeviceInfo::LowEnergyCoreConfiguration;
 
-	flags = device->coreConfigurations();
-	if (flags == QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
-		prefix = "LE:";
-#if defined(Q_OS_IOS)
-	return prefix + device->deviceUuid().toString();
-#else
-	return prefix + device->address().toString();
-#endif
+	return btDeviceAddress(device, isBle);
 }
 
 void BTDiscovery::btDeviceDiscovered(const QBluetoothDeviceInfo &device)
@@ -194,6 +161,15 @@ void BTDiscovery::btDeviceDiscovered(const QBluetoothDeviceInfo &device)
 		addBtUuid(id);
 		qDebug() << id.toByteArray();
 	}
+
+#if defined(Q_OS_IOS)
+	// On Desktop this is called when "Save" button is clicked. All
+	// DeviceInfo are stored as data on the ui list items.
+	// On mobile (iOS) the current ConnectionListModel does not support
+	// additional data, so just save all discovered devices.
+
+	saveBtDeviceInfo(btDeviceAddress(&device, false).toUtf8().constData(), device);
+#endif
 
 	btDeviceDiscoveredMain(this_d);
 #endif
@@ -219,7 +195,7 @@ void BTDiscovery::btDeviceDiscoveredMain(const btPairedDevice &device)
 		btVP.vendorIdx = vendorList.indexOf(vendor);
 		btVP.productIdx = productList[vendor].indexOf(newDevice);
 		btDCs << btVP;
-		connectionListModel.addAddress(device.address + " (" + newDevice + ")");
+		connectionListModel.addAddress(newDevice + " " + device.address);
 		return;
 	}
 	connectionListModel.addAddress(device.address);
@@ -308,4 +284,18 @@ bool BTDiscovery::checkException(const char* method, const QAndroidJniObject *ob
 }
 #endif // Q_OS_ANDROID
 
+QHash<QString, QBluetoothDeviceInfo> btDeviceInfo;
+
+void saveBtDeviceInfo(const char* devaddr, QBluetoothDeviceInfo deviceInfo)
+{
+	btDeviceInfo[devaddr] = deviceInfo;
+}
+
+QBluetoothDeviceInfo getBtDeviceInfo(const char* devaddr)
+{
+	if (btDeviceInfo.contains(devaddr))
+		return btDeviceInfo[devaddr];
+	qDebug() << "need to scan for" << devaddr;
+	return QBluetoothDeviceInfo();
+}
 #endif // BT_SUPPORT

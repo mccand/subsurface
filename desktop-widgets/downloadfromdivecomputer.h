@@ -58,15 +58,16 @@ slots:
 private:
 	void markChildrenAsDisabled();
 	void markChildrenAsEnabled();
+	void updateDeviceEnabled();
 
+	QStringListModel vendorModel;
+	QStringListModel productModel;
 	Ui::DownloadFromDiveComputer ui;
 	DownloadThread thread;
 	bool downloading;
 
 	int previousLast;
 
-	QStringListModel *vendorModel;
-	QStringListModel *productModel;
 	void fill_device_list(int dc_type);
 	QTimer *timer;
 	bool dumpWarningShown;

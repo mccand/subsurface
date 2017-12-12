@@ -1,16 +1,11 @@
 #!/bin/bash
 #
-# this should be run from the src directory, the layout is supposed to
-# look like this:
+# this should be run from the src directory which contains the subsurface
+# directory; the layout should look like this:
 #.../src/subsurface
-#       /marble-source
-#       /libdivecomputer
 #
-# the script will build these three libraries from source, even if
-# they are installed as part of the host OS since we have seen
-# numerous cases where building with random versions (especially older,
-# but sometimes also newer versions than recommended here) will lead
-# to all kinds of unnecessary pain
+# the script will build Subsurface and libdivecomputer (plus some other
+# dependencies if requestsed) from source.
 #
 # it installs the libraries and subsurface in the install-root subdirectory
 # of the current directory (except on Mac where the Subsurface.app ends up
@@ -22,10 +17,16 @@ exec 1> >(tee build.log) 2>&1
 SRC=$(pwd)
 PLATFORM=$(uname)
 
+BTSUPPORT="ON"
+
 # deal with all the command line arguments
 while [[ $# -gt 0 ]] ; do
 	arg="$1"
 	case $arg in
+		-no-bt)
+			# force Bluetooth support off
+			BTSUPPORT="OFF"
+			;;
 		-build-deps)
 			# in order to build the dependencies on Mac for release builds (to deal with the macosx-version-min for those
 			# call this script with -build-deps
@@ -36,11 +37,6 @@ while [[ $# -gt 0 ]] ; do
 			# -build-with-webkit tells the script that in fact we can assume that webkit is present (it usually
 			# is still available on Linux distros)
 			BUILD_WITH_WEBKIT="1"
-			;;
-		-build-with-marble)
-			# by default we build with QtLocation based maps
-			# in order to use the old maps, you need to enable this option but also have webkit (see previous option)
-			BUILD_WITH_MARBLE="1"
 			;;
 		-mobile)
 			# we are building Subsurface-mobile
@@ -54,6 +50,14 @@ while [[ $# -gt 0 ]] ; do
 			# we are building Subsurface and Subsurface-mobile
 			BUILD_MOBILE="1"
 			BUILD_DESKTOP="1"
+			;;
+		-create-appdir)
+			# we are building an AppImage as by product
+			CREATE_APPDIR="1"
+			;;
+		-skip-googlemaps)
+			# hack for Travix Mac build
+			SKIP_GOOGLEMAPS="1"
 			;;
 		*)
 			echo "Unknown command line argument $arg"
@@ -132,9 +136,54 @@ export PKG_CONFIG_PATH=$INSTALL_ROOT/lib/pkgconfig:$PKG_CONFIG_PATH
 
 echo Building in $SRC, installing in $INSTALL_ROOT
 
+# find qmake
+if [ ! -z $CMAKE_PREFIX_PATH ] ; then
+	QMAKE=$CMAKE_PREFIX_PATH/../../bin/qmake
+else
+	hash qmake > /dev/null && QMAKE=qmake
+	[ -z $QMAKE ] && hash qmake-qt5 > /dev/null && QMAKE=qmake-qt5
+	[ -z $QMAKE ] && echo "cannot find qmake" && exit 1
+fi
+
+# on Debian and Ubuntu based systems, the private QtLocation and
+# QtPositioning headers aren't bundled. Download them if necessary.
+if [ $PLATFORM = Linux ] ; then
+	QT_HEADERS_PATH=`$QMAKE -query QT_INSTALL_HEADERS`
+	QT_VERSION=`$QMAKE -v | grep "Qt" | cut -d" " -f4`
+
+	if [ ! -d "$QT_HEADERS_PATH/QtLocation/$QT_VERSION/QtLocation/private" ] &&
+           [ ! -d $INSTALL_ROOT/include/QtLocation/private ] ; then
+		echo "Missing private Qt headers for $QT_VERSION; downloading them..."
+
+		QTLOC_GIT=./qtlocation_git
+		QTLOC_PRIVATE=$INSTALL_ROOT/include/QtLocation/private
+		QTPOS_PRIVATE=$INSTALL_ROOT/include/QtPositioning/private
+
+		rm -rf $QTLOC_GIT > /dev/null 2>&1
+		rm -rf $INSTALL_ROOT/include/QtLocation > /dev/null 2>&1
+		rm -rf $INSTALL_ROOT/include/QtPositioning > /dev/null 2>&1
+
+		git clone --branch v$QT_VERSION git://code.qt.io/qt/qtlocation.git --depth=1 $QTLOC_GIT
+
+		mkdir -p $QTLOC_PRIVATE
+		cd $QTLOC_GIT/src/location
+		find -name '*_p.h' | xargs cp -t $QTLOC_PRIVATE
+		cd $SRC
+
+		mkdir -p $QTPOS_PRIVATE
+		cd $QTLOC_GIT/src/positioning
+		find -name '*_p.h' | xargs cp -t $QTPOS_PRIVATE
+		cd $SRC
+
+		echo "* cleanup..."
+		rm -rf $QTLOC_GIT > /dev/null 2>&1
+	fi
+fi
+
 # set up the right file name extensions
 if [ $PLATFORM = Darwin ] ; then
 	SH_LIB_EXT=dylib
+	pkg-config --exists libgit2 && LIBGIT=$(pkg-config --modversion libgit2 | cut -d. -f2)
 else
 	SH_LIB_EXT=so
 
@@ -279,30 +328,24 @@ if [[ $PLATFORM = Darwin || "$LIBGIT" < "24" ]] ; then
 		# in order for macdeployqt to do its job correctly, we need the full path in the dylib ID
 		cd $INSTALL_ROOT/lib
 		NAME=$(otool -L libgit2.dylib | grep -v : | head -1 | cut -f1 -d\  | tr -d '\t')
-		echo $NAME | grep / > /dev/null 2>&1
-		if [ $? -eq 1 ] ; then
+		echo $NAME | if grep / > /dev/null 2>&1 ; then
 			install_name_tool -id "$INSTALL_ROOT/lib/$NAME" "$INSTALL_ROOT/lib/$NAME"
 		fi
 	fi
 fi
 
+
 cd $SRC
 
 # build libdivecomputer
 
-if [ ! -d libdivecomputer ] ; then
-	if [[ $1 = local ]] ; then
-		git clone $SRC/../libdivecomputer libdivecomputer
-	else
-		git clone -b Subsurface-branch https://github.com/Subsurface-divelog/libdc.git libdivecomputer
-	fi
+cd subsurface
+
+if [ ! -d libdivecomputer/src ] ; then
+	git submodule update --recursive
 fi
+
 cd libdivecomputer
-git pull --rebase
-if ! git checkout Subsurface-branch ; then
-	echo "can't check out the Subsurface-branch branch of libdivecomputer -- giving up"
-	exit 1
-fi
 
 mkdir -p build
 cd build
@@ -320,8 +363,7 @@ make install
 
 if [ $PLATFORM = Darwin ] ; then
 	if [ -z "$CMAKE_PREFIX_PATH" ] ; then
-		# qmake in PATH?
-		libdir=`qmake -query QT_INSTALL_LIBS`
+		libdir=`$QMAKE -query QT_INSTALL_LIBS`
 		if [ $? -eq 0 ]; then
 			export CMAKE_PREFIX_PATH=$libdir/cmake
 		elif [ -d "$HOME/Qt/5.9.1" ] ; then
@@ -354,51 +396,6 @@ else
 	EXTRA_OPTS="-DNO_USERMANUAL=ON -DFBSUPPORT=OFF"
 fi
 
-# build libssrfmarblewidget
-
-if [ "$BUILD_WITH_MARBLE" = "1" ]; then
-	EXTRA_OPTS="-DMARBLE_INCLUDE_DIR=$INSTALL_ROOT/include \
-		-DMARBLE_LIBRARIES=$INSTALL_ROOT/lib/libssrfmarblewidget.$SH_LIB_EXT \
-		-DNO_MARBLE=OFF $EXTRA_OPTS"
-	if [ ! -d marble-source ] ; then
-		if [[ $1 = local ]] ; then
-			git clone $SRC/../marble-source marble-source
-		else
-			git clone -b Subsurface-branch https://github.com/Subsurface-divelog/marble.git marble-source
-		fi
-	fi
-	cd marble-source
-	git pull --rebase
-	if ! git checkout Subsurface-branch ; then
-		echo "can't check out the Subsurface-branch branch of marble -- giving up"
-		exit 1
-	fi
-	mkdir -p build
-	cd build
-
-	cmake $OLDER_MAC_CMAKE -DCMAKE_BUILD_TYPE=Release -DQTONLY=TRUE -DQT5BUILD=ON \
-		-DCMAKE_INSTALL_PREFIX=$INSTALL_ROOT \
-		-DBUILD_MARBLE_TESTS=NO \
-		-DWITH_DESIGNER_PLUGIN=NO \
-		-DBUILD_MARBLE_APPS=NO \
-		$SRC/marble-source
-	cd src/lib/marble
-	make -j4
-	make install
-
-	if [ $PLATFORM = Darwin ] ; then
-		# in order for macdeployqt to do its job correctly, we need the full path in the dylib ID
-		cd $INSTALL_ROOT/lib
-		NAME=$(otool -L libssrfmarblewidget.dylib | grep -v : | head -1 | cut -f1 -d\  | tr -d '\t' | cut -f3 -d/ )
-		echo $NAME | grep / > /dev/null 2>&1
-		if [ $? -eq 1 ] ; then
-			install_name_tool -id "$INSTALL_ROOT/lib/$NAME" "$INSTALL_ROOT/lib/$NAME"
-		fi
-	fi
-else
-	EXTRA_OPTS="-DNO_MARBLE=ON $EXTRA_OPTS"
-fi
-
 if [ "$BUILDGRANTLEE" = "1" ] ; then
 	# build grantlee
 	PRINTING="-DNO_PRINTING=OFF"
@@ -421,7 +418,7 @@ if [ "$BUILDGRANTLEE" = "1" ] ; then
 	cd build
 	cmake $OLDER_MAC_CMAKE -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX=$INSTALL_ROOT \
-		-DBUILD__TESTS=NO \
+		-DBUILD_TESTS=NO \
 		$SRC/grantlee
 	make -j4
 	make install
@@ -429,36 +426,37 @@ else
 	PRINTING="-DNO_PRINTING=ON"
 fi
 
+if [ "$SKIP_GOOGLEMAPS" != "1" ] ; then
+	# build the googlemaps map plugin
 
-# build the googlemaps map plugin
-
-cd $SRC
-if [ ! -d googlemaps ] ; then
-	if [[ $1 = local ]] ; then
-		git clone $SRC/../googlemaps googlemaps
-	else
-		git clone https://github.com/Subsurface-divelog/googlemaps.git
+	cd $SRC
+	if [ ! -d googlemaps ] ; then
+		if [[ $1 = local ]] ; then
+			git clone $SRC/../googlemaps googlemaps
+		else
+			git clone https://github.com/Subsurface-divelog/googlemaps.git
+		fi
 	fi
+	cd googlemaps
+	git checkout master
+	git pull --rebase
+
+	mkdir -p build
+	cd build
+	$QMAKE -query
+	$QMAKE "INCLUDEPATH=$INSTALL_ROOT/include" ../googlemaps.pro
+	# on Travis the compiler doesn't support c++1z, yet qmake adds that flag;
+	# since things compile fine with c++11, let's just hack that away
+	# similarly, don't use -Wdata-time
+	mv Makefile Makefile.bak
+	cat Makefile.bak | sed -e 's/std=c++1z/std=c++11/g ; s/-Wdate-time//' > Makefile
+	make -j4
+	make install
 fi
-cd googlemaps
-git checkout master
-git pull --rebase
-mkdir -p build
-cd build
-if [ ! -z $CMAKE_PREFIX_PATH ] ; then
-	QMAKE=$CMAKE_PREFIX_PATH/../../bin/qmake
-else
-	QMAKE=qmake
-fi
-$QMAKE ../googlemaps.pro
-# on Travis the compiler doesn't support c++1z, yet qmake adds that flag;
-# since things compile fine with c++11, let's just hack that away
-# similarly, don't use -Wdata-time
-sed -i 's/std=c++1z/std=c++11/g ; s/-Wdate-time//' Makefile
-make -j4
-make install
 
 # finally, build Subsurface
+
+set -x
 
 cd $SRC/subsurface
 for (( i=0 ; i < ${#BUILDS[@]} ; i++ )) ; do
@@ -481,6 +479,10 @@ for (( i=0 ; i < ${#BUILDS[@]} ; i++ )) ; do
 		-DLIBDIVECOMPUTER_INCLUDE_DIR=$INSTALL_ROOT/include \
 		-DLIBDIVECOMPUTER_LIBRARIES=$INSTALL_ROOT/lib/libdivecomputer.a \
 		-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH \
+		-DBTSUPPORT=${BTSUPPORT} \
+		-DCMAKE_INSTALL_PREFIX=${INSTALL_ROOT} \
+		-DLIBGIT2_FROM_PKGCONFIG=ON \
+		-DFORCE_LIBSSH=OFF \
 		$PRINTING $EXTRA_OPTS
 
 	if [ $PLATFORM = Darwin ] ; then
@@ -489,8 +491,16 @@ for (( i=0 ; i < ${#BUILDS[@]} ; i++ )) ; do
 	fi
 
 	LIBRARY_PATH=$INSTALL_ROOT/lib make -j4
+	LIBRARY_PATH=$INSTALL_ROOT/lib make install
 
-	if [ $PLATFORM = Darwin ] ; then
-		LIBRARY_PATH=$INSTALL_ROOT/lib make install
+	if [ "$CREATE_APPDIR" = "1" ] ; then
+		# if we create an AppImage this makes gives us a sane starting point
+		cd $SRC
+		mkdir -p ./appdir
+		mkdir -p appdir/usr/share/metainfo
+		mkdir -p appdir/usr/share/icons/hicolor/256x256/apps
+		cp -r ./install-root/* ./appdir/usr
+		cp subsurface/appdata/subsurface.appdata.xml appdir/usr/share/metainfo/
+		cp subsurface/icons/subsurface-icon.png appdir/usr/share/icons/hicolor/256x256/apps/
 	fi
 done

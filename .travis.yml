@@ -1,14 +1,26 @@
-language: c++
 
-dist: trusty
 
-cache:
-    directories:
-        - Qt
+matrix:
+  include:
+    - env: SUBSURFACE_PLATFORM='mac'
+      os: osx
+      osx_image: xcode6.4
+      language: c++ ruby
 
-addons:
-    apt:
-        packages:
+    - env: SUBSURFACE_PLATFORM='windows'
+      os: linux
+      dist: trusty
+      sudo: required
+      language: c++
+
+    - env: SUBSURFACE_PLATFORM='linux'
+      os: linux
+      dist: trusty
+      sudo: required
+      language: c++
+      addons:
+        apt:
+          packages:
             - git
             - g++
             - make
@@ -27,22 +39,36 @@ addons:
             - libcurl4-openssl-dev
             # Not a subsurface dependency, but a Qt dependency
             - mesa-common-dev
+            - libqt5gui5
+            - libxcb-xinerama0
+            # Not a subsurface dependency, but a QtMultimedia/libdeclarative_multimedia.so dependency
+            - libpulse-mainloop-glib0
+            # Not a subsurface dependency, but a QtWebKit dependency
+            - libhyphen-dev
+            - libicu52
+
+    - env: SUBSURFACE_PLATFORM="android"
+      # Currently hard coded to arm
+      os: linux
+      language: c++
+      services:
+          - docker
+# TODO: caching
+#      cache:
+#          timeout: 300
+#          directories:
+#              - 3pp
 
 before_install:
-    - if [ ! -e Qt/5.9.1 ] ; then
-          rm -rf Qt ;
-          wget http://download.qt.io/official_releases/qt/5.9/5.9.1/qt-opensource-linux-x64-5.9.1.run ;
-          chmod +x ./qt-opensource-linux-x64-5.9.1.run ;
-          ./qt-opensource-linux-x64-5.9.1.run --platform minimal --script qt-installer-noninteractive.qs --no-force-installations ;
-      fi
-      # TestPreferences uses gui calls, so run a xvfb so it has something to talk to
-    - "export DISPLAY=:99.0"
-    - "sh -e /etc/init.d/xvfb start"
-
+    - source ${TRAVIS_BUILD_DIR}/scripts/${SUBSURFACE_PLATFORM}/before_install.sh
 
 script:
-    - export CMAKE_PREFIX_PATH=$PWD/Qt/5.9.1/gcc_64/lib/cmake ;
-      cd .. ;
-      bash -e ./subsurface/scripts/build.sh -both
-    - env CTEST_OUTPUT_ON_FAILURE=1 make -C subsurface/build check
-#    - env CTEST_OUTPUT_ON_FAILURE=1 make -C subsurface/build-mobile check
+    - source ${TRAVIS_BUILD_DIR}/scripts/${SUBSURFACE_PLATFORM}/travisbuild.sh
+
+after_success:
+    - source ${TRAVIS_BUILD_DIR}/scripts/${SUBSURFACE_PLATFORM}/after_success.sh
+
+branches:
+  except:
+    - # Do not build tags that we create when we upload to GitHub Releases
+    - /^(?i:continuous)/

@@ -157,7 +157,8 @@ static void save_cylinder_info(struct membuffer *b, struct dive *dive)
 		put_pressure(b, cylinder->end, " end=", "bar");
 		if (cylinder->cylinder_use != OC_GAS)
 			put_format(b, " use=%s", cylinderuse_text[cylinder->cylinder_use]);
-
+		if (cylinder->depth.mm != 0)
+			put_milli(b, " depth='", cylinder->depth.mm, " m'");
 		put_string(b, "\n");
 	}
 }
@@ -348,9 +349,9 @@ static void save_sample(struct membuffer *b, struct sample *sample, struct sampl
 static void save_samples(struct membuffer *b, struct dive *dive, struct divecomputer *dc)
 {
 	int nr;
-	int o2sensor, legacy;
+	int o2sensor;
 	struct sample *s;
-	struct sample dummy = {};
+	struct sample dummy = { .bearing.degrees = -1, .ndl.seconds = -1 };
 
 	/* Is this a CCR dive with the old-style "o2pressure" sensor? */
 	o2sensor = legacy_format_o2pressures(dive, dc);
@@ -424,7 +425,8 @@ static void save_dc(struct membuffer *b, struct dive *dive, struct divecomputer 
  */
 static void create_dive_buffer(struct dive *dive, struct membuffer *b)
 {
-	put_format(b, "duration %u:%02u min\n", FRACTION(dive->dc.duration.seconds, 60));
+	if (dive->dc.duration.seconds > 0)
+		put_format(b, "duration %u:%02u min\n", FRACTION(dive->dc.duration.seconds, 60));
 	SAVE("rating", rating);
 	SAVE("visibility", visibility);
 	cond_put_format(dive->tripflag == NO_TRIP, b, "notrip\n");
@@ -439,42 +441,6 @@ static void create_dive_buffer(struct dive *dive, struct membuffer *b)
 	save_dive_temperature(b, dive);
 }
 
-static struct membuffer error_string_buffer = { 0 };
-
-/*
- * Note that the act of "getting" the error string
- * buffer doesn't de-allocate the buffer, but it does
- * set the buffer length to zero, so that any future
- * error reports will overwrite the string rather than
- * append to it.
- */
-const char *get_error_string(void)
-{
-	const char *str;
-
-	if (!error_string_buffer.len)
-		return "";
-	str = mb_cstring(&error_string_buffer);
-	error_string_buffer.len = 0;
-	return str;
-}
-
-int report_error(const char *fmt, ...)
-{
-	struct membuffer *buf = &error_string_buffer;
-
-	/* Previous unprinted errors? Add a newline in between */
-	if (buf->len)
-		put_bytes(buf, "\n", 1);
-	VA_BUF(buf, fmt);
-	mb_cstring(buf);
-	return -1;
-}
-
-void report_message(const char *msg)
-{
-	(void)report_error("%s", msg);
-}
 
 /*
  * libgit2 has a "git_treebuilder" concept, but it's broken, and can not
@@ -509,6 +475,12 @@ static int tree_insert(git_treebuilder *dir, const char *name, int mkunique, git
 	}
 	ret = git_treebuilder_insert(NULL, dir, name, id, mode);
 	free_buffer(&uniquename);
+	if (ret) {
+		const git_error *gerr = giterr_last();
+		if (gerr) {
+			fprintf(stderr, "tree_insert failed with return %d error %s\n", ret, gerr->message);
+		}
+	}
 	return ret;
 }
 
@@ -933,7 +905,7 @@ static void save_divesites(git_repository *repo, struct dir *tree)
 	for (int i = 0; i < dive_site_table.nr; i++) {
 		struct membuffer b = { 0 };
 		struct dive_site *ds = get_dive_site(i);
-		if (dive_site_is_empty(ds)) {
+		if (dive_site_is_empty(ds) || !is_dive_site_used(ds->uuid, false)) {
 			int j;
 			struct dive *d;
 			for_each_dive(j, d) {
@@ -1099,12 +1071,14 @@ static int get_authorship(git_repository *repo, git_signature **authorp)
 	return git_signature_now(authorp, user.name, user.email);
 }
 
-static void create_commit_message(struct membuffer *msg)
+static void create_commit_message(struct membuffer *msg, bool create_empty)
 {
 	int nr = dive_table.nr;
 	struct dive *dive = get_dive(nr-1);
 
-	if (dive) {
+	if (create_empty) {
+		put_string(msg, "Initial commit to create empty repo.\n\n");
+	} else if (dive) {
 		dive_trip_t *trip = dive->divetrip;
 		const char *location = get_dive_location(dive) ? : "no location";
 		struct divecomputer *dc = &dive->dc;
@@ -1125,10 +1099,10 @@ static void create_commit_message(struct membuffer *msg)
 		} while ((dc = dc->next) != NULL);
 		put_format(msg, "\n");
 	}
-	put_format(msg, "Created by subsurface %s\n", subsurface_user_agent());
+	put_format(msg, "Created by %s\n", subsurface_user_agent());
 }
 
-static int create_new_commit(git_repository *repo, const char *remote, const char *branch, git_oid *tree_id)
+static int create_new_commit(git_repository *repo, const char *remote, const char *branch, git_oid *tree_id, bool create_empty)
 {
 	int ret;
 	git_reference *ref;
@@ -1182,7 +1156,7 @@ static int create_new_commit(git_repository *repo, const char *remote, const cha
 	} else {
 		struct membuffer commit_msg = { 0 };
 
-		create_commit_message(&commit_msg);
+		create_commit_message(&commit_msg, create_empty);
 		if (git_commit_create_v(&commit_id, repo, NULL, author, author, NULL, mb_cstring(&commit_msg), tree, parent != NULL, parent))
 			return report_error("Git commit create failed (%s)", strerror(errno));
 		free_buffer(&commit_msg);
@@ -1213,7 +1187,14 @@ static int create_new_commit(git_repository *repo, const char *remote, const cha
 
 	if (git_reference_set_target(&ref, ref, &commit_id, "Subsurface save event"))
 		return report_error("Failed to update branch '%s'", branch);
-	set_git_id(&commit_id);
+
+	/*
+	 * if this was the empty commit to initialize a new repo, don't remember the
+	 * commit_id, otherwise we'll think that the cache is valid and fail when building
+	 * the tree when we actually try to store the dive data
+	 */
+	if (! create_empty)
+		set_git_id(&commit_id);
 
 	git_signature_free(author);
 
@@ -1280,7 +1261,7 @@ int do_git_save(git_repository *repo, const char *branch, const char *remote, bo
 		return report_error("git tree write failed");
 
 	/* And save the tree! */
-	if (create_new_commit(repo, remote, branch, &id))
+	if (create_new_commit(repo, remote, branch, &id, create_empty))
 		return report_error("creating commit failed");
 
 	if (remote && prefs.cloud_background_sync && !prefs.git_local_only) {

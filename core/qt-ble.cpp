@@ -16,6 +16,7 @@
 
 #include "libdivecomputer.h"
 #include "core/qt-ble.h"
+#include "core/btdiscovery.h"
 
 #if defined(SSRF_CUSTOM_IO)
 
@@ -139,6 +140,11 @@ BLEObject::BLEObject(QLowEnergyController *c, dc_user_device_t *d)
 BLEObject::~BLEObject()
 {
 	qDebug() << "Deleting BLE object";
+
+	foreach (QLowEnergyService *service, services)
+		delete service;
+
+	delete controller;
 }
 
 dc_status_t BLEObject::write(const void *data, size_t size, size_t *actual)
@@ -150,24 +156,24 @@ dc_status_t BLEObject::write(const void *data, size_t size, size_t *actual)
 	}
 
 	QList<QLowEnergyCharacteristic> list = preferredService()->characteristics();
+
+	if (list.isEmpty())
+		return DC_STATUS_IO;
+
 	QByteArray bytes((const char *)data, (int) size);
 
-	if (!list.isEmpty()) {
-		const QLowEnergyCharacteristic &c = list.constFirst();
-		QLowEnergyService::WriteMode mode;
+	const QLowEnergyCharacteristic &c = list.constFirst();
+	QLowEnergyService::WriteMode mode;
 
-		mode = (c.properties() & QLowEnergyCharacteristic::WriteNoResponse) ?
+	mode = (c.properties() & QLowEnergyCharacteristic::WriteNoResponse) ?
 			QLowEnergyService::WriteWithoutResponse :
 			QLowEnergyService::WriteWithResponse;
 
-		if (IS_SHEARWATER(device))
-			bytes.prepend("\1\0", 2);
+	if (IS_SHEARWATER(device))
+		bytes.prepend("\1\0", 2);
 
-		preferredService()->writeCharacteristic(c, bytes, mode);
-		return DC_STATUS_SUCCESS;
-	}
-
-	return DC_STATUS_IO;
+	preferredService()->writeCharacteristic(c, bytes, mode);
+	return DC_STATUS_SUCCESS;
 }
 
 dc_status_t BLEObject::read(void *data, size_t size, size_t *actual)
@@ -195,7 +201,7 @@ dc_status_t BLEObject::read(void *data, size_t size, size_t *actual)
 	if (IS_SHEARWATER(device))
 		packet.remove(0,2);
 
-	if (packet.size() > size)
+	if ((size_t)packet.size() > size)
 		return DC_STATUS_NOMEMORY;
 
 	memcpy((char *)data, packet.data(), packet.size());
@@ -287,13 +293,20 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 	if (!strncmp(devaddr, "LE:", 3))
 		devaddr += 3;
 
-	QBluetoothAddress remoteDeviceAddress(devaddr);
-
 	// HACK ALERT! Qt 5.9 needs this for proper Bluez operation
 	qputenv("QT_DEFAULT_CENTRAL_SERVICES", "1");
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+	QBluetoothDeviceInfo remoteDevice = getBtDeviceInfo(devaddr);
+	QLowEnergyController *controller = QLowEnergyController::createCentral(remoteDevice);
+#else
+	// this is deprecated but given that we don't use Qt to scan for
+	// devices on Android, we don't have QBluetoothDeviceInfo for the
+	// paired devices and therefore cannot use the newer interfaces
+	// that are preferred starting with Qt 5.7
+	QBluetoothAddress remoteDeviceAddress(devaddr);
 	QLowEnergyController *controller = new QLowEnergyController(remoteDeviceAddress);
-
+#endif
 	qDebug() << "qt_ble_open(" << devaddr << ")";
 
 	if (IS_SHEARWATER(io->user_device))
@@ -313,15 +326,21 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 	case QLowEnergyController::ConnectedState:
 		qDebug() << "connected to the controller for device" << devaddr;
 		break;
+	case QLowEnergyController::ConnectingState:
+		qDebug() << "timeout while trying to connect to the controller " << devaddr;
+		report_error("Timeout while trying to connect to %s", devaddr);
+		delete controller;
+		return DC_STATUS_IO;
 	default:
 		qDebug() << "failed to connect to the controller " << devaddr << "with error" << controller->errorString();
 		report_error("Failed to connect to %s: '%s'", devaddr, controller->errorString().toUtf8().data());
-		controller->disconnectFromDevice();
 		delete controller;
 		return DC_STATUS_IO;
 	}
 
-	/* We need to discover services etc here! */
+	// We need to discover services etc here!
+	// Note that ble takes ownership of controller and henceforth deleting ble will
+	// take care of deleting controller.
 	BLEObject *ble = new BLEObject(controller, io->user_device);
 	ble->connect(controller, SIGNAL(serviceDiscovered(QBluetoothUuid)), SLOT(addService(QBluetoothUuid)));
 
@@ -339,8 +358,7 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 	if (ble->preferredService() == nullptr) {
 		qDebug() << "failed to find suitable service on" << devaddr;
 		report_error("Failed to find suitable service on '%s'", devaddr);
-		controller->disconnectFromDevice();
-		delete controller;
+		delete ble;
 		return DC_STATUS_IO;
 	}
 
@@ -354,8 +372,7 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 	if (ble->preferredService()->state() != QLowEnergyService::ServiceDiscovered) {
 		qDebug() << "failed to find suitable service on" << devaddr;
 		report_error("Failed to find suitable service on '%s'", devaddr);
-		controller->disconnectFromDevice();
-		delete controller;
+		delete ble;
 		return DC_STATUS_IO;
 	}
 
@@ -370,8 +387,10 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 
 		if (IS_HW(io->user_device)) {
 			dc_status_t r = ble->setupHwTerminalIo(list);
-			if (r != DC_STATUS_SUCCESS)
+			if (r != DC_STATUS_SUCCESS) {
+				delete ble;
 				return r;
+			}
 		} else {
 			QList<QLowEnergyDescriptor> l = c.descriptors();
 
@@ -382,8 +401,19 @@ dc_status_t qt_ble_open(dc_custom_io_t *io, dc_context_t *context, const char *d
 				qDebug() << "Descriptor:" << d.name() << "uuid:" << d.uuid().toString();
 
 			if (!l.isEmpty()) {
-				d = l.first();
-				qDebug() << "now writing \"0x0100\" to the first descriptor";
+				bool foundCCC = false;
+				foreach (d, l) {
+					if (d.type() == QBluetoothUuid::ClientCharacteristicConfiguration) {
+						// pick the correct characteristic
+						foundCCC = true;
+						break;
+					}
+				}
+				if (!foundCCC)
+					// if we didn't find a ClientCharacteristicConfiguration, try the first one
+					d = l.first();
+
+				qDebug() << "now writing \"0x0100\" to the descriptor" << d.uuid().toString();
 
 				ble->preferredService()->writeDescriptor(d, QByteArray::fromHex("0100"));
 			}

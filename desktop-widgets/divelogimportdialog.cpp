@@ -737,7 +737,9 @@ void DiveLogImportDialog::loadFileContents(int value, whatChanged triggeredBy)
 		fileColumns.append(currColumns);
 		rows += 1;
 	}
-	resultModel->setColumnValues(fileColumns);
+
+	if (rows > 0)
+		resultModel->setColumnValues(fileColumns);
 	for (int i = 0; i < headers.count(); i++)
 		if (!headers.at(i).isEmpty())
 			resultModel->setData(resultModel->index(0, i),headers.at(i),Qt::EditRole);
@@ -926,7 +928,7 @@ void DiveLogImportDialog::on_buttonBox_accepted()
 
 				parse_manual_file(fileNames[i].toUtf8().data(), params, pnr - 1);
 			} else {
-				char *params[49];
+				char *params[51];
 				int pnr = 0;
 
 				QRegExp apdRe("^.*[/\\][0-9a-zA-Z]*_([0-9]{6})_([0-9]{6})\\.apd");

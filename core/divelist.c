@@ -11,7 +11,7 @@
  * void get_dive_gas(struct dive *dive, int *o2_p, int *he_p, int *o2low_p)
  * int total_weight(struct dive *dive)
  * int get_divenr(struct dive *dive)
- * double init_decompression(struct dive *dive)
+ * int init_decompression(struct dive *dive)
  * void update_cylinder_related_info(struct dive *dive)
  * void dump_trip_list(void)
  * dive_trip_t *find_matching_trip(timestamp_t when)
@@ -205,42 +205,19 @@ int const cns_table[][3] = {
 	{ 600, 720 * 60, 720 * 60 }
 };
 
-/* this only gets called if dive->maxcns == 0 which means we know that
- * none of the divecomputers has tracked any CNS for us
- * so we calculated it "by hand" */
-static int calculate_cns(struct dive *dive)
+/* Calculate the CNS for a single dive */
+double calculate_cns_dive(struct dive *dive)
 {
-	int i, divenr;
+	int n;
 	size_t j;
-	double cns = 0.0;
 	struct divecomputer *dc = &dive->dc;
-	struct dive *prev_dive;
-	timestamp_t endtime;
-
-	/* shortcut */
-	if (dive->cns)
-		return dive->cns;
-	/*
-	 * Do we start with a cns loading from a previous dive?
-	 * Check if we did a dive 12 hours prior, and what cns we had from that.
-	 * Then apply ha 90min halftime to see whats left.
-	 */
-	divenr = get_divenr(dive);
-	if (divenr) {
-		prev_dive = get_dive(divenr - 1);
-		if (prev_dive) {
-			endtime = prev_dive->when + prev_dive->duration.seconds;
-			if (dive->when < (endtime + 3600 * 12)) {
-				cns = calculate_cns(prev_dive);
-				cns = cns * 1 / pow(2, (dive->when - endtime) / (90.0 * 60.0));
-			}
-		}
-	}
-	/* Caclulate the cns for each sample in this dive and sum them */
-	for (i = 1; i < dc->samples; i++) {
+	double cns = 0.0;
+	
+	/* Caclulate the CNS for each sample in this dive and sum them */
+	for (n = 1; n < dc->samples; n++) {
 		int t;
 		int po2;
-		struct sample *sample = dc->sample + i;
+		struct sample *sample = dc->sample + n;
 		struct sample *psample = sample - 1;
 		t = sample->time.seconds - psample->time.seconds;
 		if (sample->setpoint.mbar) {
@@ -259,6 +236,135 @@ static int calculate_cns(struct dive *dive)
 		j--;
 		cns += ((double)t) / ((double)cns_table[j][1]) * 100;
 	}
+	
+	return cns;
+}
+
+/* this only gets called if dive->maxcns == 0 which means we know that
+ * none of the divecomputers has tracked any CNS for us
+ * so we calculated it "by hand" */
+static int calculate_cns(struct dive *dive)
+{
+	int i, divenr;
+	double cns = 0.0;
+	timestamp_t last_starttime, last_endtime = 0;
+
+	/* shortcut */
+	if (dive->cns)
+		return dive->cns;
+
+	divenr = get_divenr(dive);
+	i = divenr >= 0 ? divenr : dive_table.nr;
+#if DECO_CALC_DEBUG & 2
+	if (i >= 0 && i < dive_table.nr) 
+		printf("\n\n*** CNS for dive #%d %d\n", i, get_dive(i)->number);
+	else 
+		printf("\n\n*** CNS for dive #%d\n", i);
+#endif
+	/* Look at next dive in dive list table and correct i when needed */
+	while (i < dive_table.nr - 1) {
+		struct dive *pdive = get_dive(i);
+		if (!pdive || pdive->when > dive->when)
+			break;
+		i++;
+	}
+	/* Look at previous dive in dive list table and correct i when needed */
+	while (i > 0) {
+		struct dive *pdive = get_dive(i - 1);
+		if (!pdive || pdive->when < dive->when)
+			break;
+		i--;
+	}
+#if DECO_CALC_DEBUG & 2
+	printf("Dive number corrected to #%d\n", i);
+#endif
+	last_starttime = dive->when;
+	/* Walk backwards to check previous dives - how far do we need to go back? */
+	while (i--) {
+		if (i == divenr && i > 0)
+			i--;
+#if DECO_CALC_DEBUG & 2
+		printf("Check if dive #%d %d has to be considered as prev dive: ", i, get_dive(i)->number);
+#endif
+		struct dive *pdive = get_dive(i);
+		/* we don't want to mix dives from different trips as we keep looking
+		 * for how far back we need to go */
+		if (dive->divetrip && pdive->divetrip != dive->divetrip) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - other dive trip\n"); 
+#endif
+			continue;
+		}
+		if (!pdive || pdive->when >= dive->when || dive_endtime(pdive) + 12 * 60 * 60 < last_starttime) {
+#if DECO_CALC_DEBUG & 2
+			printf("No\n");
+#endif
+			break;
+		}
+		last_starttime = pdive->when;
+#if DECO_CALC_DEBUG & 2
+		printf("Yes\n");
+#endif
+	}
+	/* Walk forward and add dives and surface intervals to CNS */
+	while (++i < dive_table.nr) {
+#if DECO_CALC_DEBUG & 2
+		printf("Check if dive #%d %d will be really added to CNS calc: ", i, get_dive(i)->number);
+#endif
+		struct dive *pdive = get_dive(i);
+		/* again skip dives from different trips */
+		if (dive->divetrip && dive->divetrip != pdive->divetrip) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - other dive trip\n"); 
+#endif
+			continue;
+		}
+		/* Don't add future dives */
+		if (pdive->when >= dive->when) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - future or same dive\n");
+#endif
+			break;
+		}
+		/* Don't add the copy of the dive itself */
+		if (i == divenr) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - copy of dive\n");
+#endif
+			continue;
+		}
+#if DECO_CALC_DEBUG & 2
+		printf("Yes\n");
+#endif
+
+		/* CNS reduced with 90min halftime during surface interval */
+		if (last_endtime) 
+			cns /= pow(2, (pdive->when - last_endtime) / (90.0 * 60.0));
+#if DECO_CALC_DEBUG & 2
+		printf("CNS after surface interval: %f\n", cns);
+#endif
+
+		cns += calculate_cns_dive(pdive);
+#if DECO_CALC_DEBUG & 2
+		printf("CNS after previous dive: %f\n", cns);
+#endif
+
+		last_starttime = pdive->when;
+		last_endtime = dive_endtime(pdive);
+	}
+	
+	/* CNS reduced with 90min halftime during surface interval */
+	if (last_endtime)
+		cns /= pow(2, (dive->when - last_endtime) / (90.0 * 60.0));
+#if DECO_CALC_DEBUG & 2
+	printf("CNS after last surface interval: %f\n", cns);
+#endif
+
+	cns += calculate_cns_dive(dive);
+#if DECO_CALC_DEBUG & 2
+	printf("CNS after dive: %f\n", cns);
+#endif
+
 	/* save calculated cns in dive struct */
 	dive->cns = lrint(cns);
 	return dive->cns;
@@ -313,7 +419,7 @@ static int calculate_sac(struct dive *dive)
 }
 
 /* for now we do this based on the first divecomputer */
-static void add_dive_to_deco(struct dive *dive)
+static void add_dive_to_deco(struct deco_state *ds, struct dive *dive)
 {
 	struct divecomputer *dc = &dive->dc;
 	struct gasmix *gasmix = NULL;
@@ -333,7 +439,7 @@ static void add_dive_to_deco(struct dive *dive)
 		for (j = t0; j < t1; j++) {
 			int depth = interpolate(psample->depth.mm, sample->depth.mm, j - t0, t1 - t0);
 			gasmix = get_gasmix(dive, dc, j, &ev, gasmix);
-			add_segment(depth_to_bar(depth, dive), gasmix, 1, sample->setpoint.mbar, dive, dive->sac);
+			add_segment(ds, depth_to_bar(depth, dive), gasmix, 1, sample->setpoint.mbar, dive, dive->sac);
 		}
 	}
 }
@@ -367,95 +473,173 @@ int get_divesite_idx(struct dive_site *ds)
 static struct gasmix air = { .o2.permille = O2_IN_AIR, .he.permille = 0 };
 
 /* take into account previous dives until there is a 48h gap between dives */
-/* return true if this is a repetitive dive */
-unsigned int init_decompression(struct dive *dive)
+/* return last surface time before this dive or dummy value of 48h */
+/* return negative surface time if dives are overlapping */
+/* The place you call this function is likely the place where you want
+ * to create the deco_state */
+int init_decompression(struct deco_state *ds, struct dive *dive)
 {
 	int i, divenr = -1;
-	unsigned int surface_time = 0;
-	timestamp_t when, lasttime = 0, laststart = 0;
+	int surface_time = 48 * 60 * 60;
+	timestamp_t last_endtime = 0, last_starttime = 0;
 	bool deco_init = false;
 	double surface_pressure;
 
 	if (!dive)
 		return false;
 
-	surface_pressure = get_surface_pressure_in_mbar(dive, true) / 1000.0;
 	divenr = get_divenr(dive);
-	when = dive->when;
-	i = divenr;
-	if (i < 0) {
-		i = dive_table.nr - 1;
-		while (i >= 0 && get_dive(i)->when > when)
-			--i;
+	i = divenr >= 0 ? divenr : dive_table.nr;
+#if DECO_CALC_DEBUG & 2
+	if (i >= 0 && i < dive_table.nr)
+		printf("\n\n*** Init deco for dive #%d %d\n", i, get_dive(i)->number);
+	else
+		printf("\n\n*** Init deco for dive #%d\n", i);
+#endif
+	/* Look at next dive in dive list table and correct i when needed */
+	while (i < dive_table.nr - 1) {
+		struct dive *pdive = get_dive(i);
+		if (!pdive || pdive->when > dive->when)
+			break;
 		i++;
 	}
+	/* Look at previous dive in dive list table and correct i when needed */
+	while (i > 0) {
+		struct dive *pdive = get_dive(i - 1);
+		if (!pdive || pdive->when < dive->when)
+			break;
+		i--;
+	}
+#if DECO_CALC_DEBUG & 2
+	printf("Dive number corrected to #%d\n", i);
+#endif
+	last_starttime = dive->when;
+	/* Walk backwards to check previous dives - how far do we need to go back? */
 	while (i--) {
+		if (i == divenr && i > 0)
+			i--;
+#if DECO_CALC_DEBUG & 2
+		printf("Check if dive #%d %d has to be considered as prev dive: ", i, get_dive(i)->number);
+#endif
 		struct dive *pdive = get_dive(i);
 		/* we don't want to mix dives from different trips as we keep looking
 		 * for how far back we need to go */
-		if (dive->divetrip && pdive->divetrip != dive->divetrip)
+		if (dive->divetrip && pdive->divetrip != dive->divetrip) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - other dive trip\n"); 
+#endif
 			continue;
-		if (!pdive || pdive->when >= when || pdive->when + pdive->duration.seconds + 48 * 60 * 60 < when)
+		}
+		if (!pdive || pdive->when >= dive->when || dive_endtime(pdive) + 48 * 60 * 60 < last_starttime) {
+#if DECO_CALC_DEBUG & 2
+			printf("No\n");
+#endif
 			break;
-		/* For simultaneous dives, only consider the first */
-		if (pdive->when == laststart)
-			continue;
-		when = pdive->when;
-		lasttime = when + pdive->duration.seconds;
+		}
+		last_starttime = pdive->when;
+#if DECO_CALC_DEBUG & 2
+		printf("Yes\n");
+#endif
 	}
-	while (++i < (divenr >= 0 ? divenr : dive_table.nr)) {
+	/* Walk forward an add dives and surface intervals to deco */
+	while (++i < dive_table.nr) {
+#if DECO_CALC_DEBUG & 2
+		printf("Check if dive #%d %d will be really added to deco calc: ", i, get_dive(i)->number);
+#endif
 		struct dive *pdive = get_dive(i);
 		/* again skip dives from different trips */
-		if (dive->divetrip && dive->divetrip != pdive->divetrip)
+		if (dive->divetrip && dive->divetrip != pdive->divetrip) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - other dive trip\n"); 
+#endif
 			continue;
+		}
 		/* Don't add future dives */
-		if (pdive->when > dive->when)
-			continue;	/* This could be break if the divelist is always sorted */
+		if (pdive->when >= dive->when) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - future or same dive\n");
+#endif
+			break;
+		}
+		/* Don't add the copy of the dive itself */
+		if (i == divenr) {
+#if DECO_CALC_DEBUG & 2
+			printf("No - copy of dive\n");
+#endif
+			continue;
+		}
+#if DECO_CALC_DEBUG & 2
+		printf("Yes\n");
+#endif
+
 		surface_pressure = get_surface_pressure_in_mbar(pdive, true) / 1000.0;
+		/* Is it the first dive we add? */
 		if (!deco_init) {
-			clear_deco(surface_pressure);
+#if DECO_CALC_DEBUG & 2
+			printf("Init deco\n");
+#endif
+			clear_deco(ds, surface_pressure);
 			deco_init = true;
 #if DECO_CALC_DEBUG & 2
+			printf("Tissues after init:\n");
 			dump_tissues();
 #endif
 		}
-		if (pdive->when > lasttime) {
-			surface_time = pdive->when - lasttime;
-			lasttime = pdive->when + pdive->duration.seconds;
-			add_segment(surface_pressure, &air, surface_time, 0, dive, prefs.decosac);
+		else {
+			surface_time = pdive->when - last_endtime;
+			if (surface_time < 0) {
 #if DECO_CALC_DEBUG & 2
-			printf("after surface intervall of %d:%02u\n", FRACTION(surface_time, 60));
-			dump_tissues();
+				printf("Exit because surface intervall is %d\n", surface_time);
+#endif
+				return surface_time;
+			}
+			add_segment(ds, surface_pressure, &air, surface_time, 0, dive, prefs.decosac);
+#if DECO_CALC_DEBUG & 2
+			printf("Tissues after surface intervall of %d:%02u:\n", FRACTION(surface_time, 60));
+			dump_tissues(ds);
 #endif
 		}
-		add_dive_to_deco(pdive);
-		laststart = pdive->when;
-		clear_vpmb_state();
+
+		add_dive_to_deco(ds, pdive);
+
+		last_starttime = pdive->when;
+		last_endtime = dive_endtime(pdive);
+		clear_vpmb_state(ds);
 #if DECO_CALC_DEBUG & 2
-		printf("added dive #%d\n", pdive->number);
-		dump_tissues();
+		printf("Tissues after added dive #%d:\n", pdive->number);
+		dump_tissues(ds);
 #endif
 	}
-	/* add the final surface time */
-	if (lasttime && dive->when > lasttime) {
-		surface_time = dive->when - lasttime;
-		surface_pressure = get_surface_pressure_in_mbar(dive, true) / 1000.0;
-		add_segment(surface_pressure, &air, surface_time, 0, dive, prefs.decosac);
-#if DECO_CALC_DEBUG & 2
-		printf("after surface intervall of %d:%02u\n", FRACTION(surface_time, 60));
-		dump_tissues();
-#endif
-	}
+
+	surface_pressure = get_surface_pressure_in_mbar(dive, true) / 1000.0;
+	/* We don't have had a previous dive at all? */
 	if (!deco_init) {
-		surface_pressure = get_surface_pressure_in_mbar(dive, true) / 1000.0;
-		clear_deco(surface_pressure);
 #if DECO_CALC_DEBUG & 2
-		printf("no previous dive\n");
-		dump_tissues();
+		printf("Init deco\n");		
+#endif
+		clear_deco(ds, surface_pressure);
+#if DECO_CALC_DEBUG & 2
+		printf("Tissues after no previous dive, surface time set to 48h:\n");
+		dump_tissues(ds);
 #endif
 	}
+	else {
+		surface_time = dive->when - last_endtime;
+		if (surface_time < 0) {
+#if DECO_CALC_DEBUG & 2
+			printf("Exit because surface intervall is %d\n", surface_time);
+#endif
+			return surface_time;
+		}
+		add_segment(ds, surface_pressure, &air, surface_time, 0, dive, prefs.decosac);
+#if DECO_CALC_DEBUG & 2
+		printf("Tissues after surface intervall of %d:%02u:\n", FRACTION(surface_time, 60));
+		dump_tissues(ds);
+#endif
+	}
+
 	// I do not dare to remove this call. We don't need the result but it might have side effects. Bummer.
-	tissue_tolerance_calc(dive, surface_pressure);
+	tissue_tolerance_calc(ds, dive, surface_pressure);
 	return surface_time;
 }
 
@@ -1136,7 +1320,7 @@ void process_dives(bool is_imported, bool prefer_imported)
 		/* only try to merge overlapping dives - or if one of the dives has
 		 * zero duration (that might be a gps marker from the webservice) */
 		if (prev->duration.seconds && dive->duration.seconds &&
-		    prev->when + prev->duration.seconds < dive->when)
+		    dive_endtime(prev) < dive->when)
 			continue;
 
 		merged = try_to_merge(prev, dive, prefer_imported);

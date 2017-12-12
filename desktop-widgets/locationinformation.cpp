@@ -4,7 +4,6 @@
 #include "desktop-widgets/mainwindow.h"
 #include "desktop-widgets/divelistview.h"
 #include "core/qthelper.h"
-#include "desktop-widgets/globe.h"
 #include "desktop-widgets/mapwidget.h"
 #include "qt-models/filtermodels.h"
 #include "qt-models/divelocationmodel.h"
@@ -37,6 +36,11 @@ LocationInformationWidget::LocationInformationWidget(QWidget *parent) : QGroupBo
 	connect(this, SIGNAL(startFilterDiveSite(uint32_t)), MultiFilterSortModel::instance(), SLOT(startFilterDiveSite(uint32_t)));
 	connect(this, SIGNAL(stopFilterDiveSite()), MultiFilterSortModel::instance(), SLOT(stopFilterDiveSite()));
 	connect(ui.geoCodeButton, SIGNAL(clicked()), this, SLOT(reverseGeocode()));
+	connect(this, SIGNAL(nameChanged(const QString &, const QString &)),
+		LocationFilterModel::instance(), SLOT(changeName(const QString &, const QString &)));
+	connect(ui.updateLocationButton, SIGNAL(clicked()), this, SLOT(updateLocationOnMap()));
+	connect(ui.diveSiteCoordinates, SIGNAL(returnPressed()), this, SLOT(updateLocationOnMap()));
+	ui.diveSiteCoordinates->installEventFilter(this);
 
 	SsrfSortFilterProxyModel *filter_model = new SsrfSortFilterProxyModel(this);
 	filter_model->setSourceModel(LocationInformationModel::instance());
@@ -45,16 +49,6 @@ LocationInformationWidget::LocationInformationWidget(QWidget *parent) : QGroupBo
 	ui.diveSiteListView->setModelColumn(LocationInformationModel::NAME);
 	ui.diveSiteListView->installEventFilter(this);
 	// Map Management Code.
-#ifndef NO_MARBLE
-	connect(this, &LocationInformationWidget::requestCoordinates,
-		GlobeGPS::instance(), &GlobeGPS::prepareForGetDiveCoordinates);
-	connect(this, &LocationInformationWidget::endRequestCoordinates,
-		GlobeGPS::instance(), &GlobeGPS::endGetDiveCoordinates);
-	connect(GlobeGPS::instance(), &GlobeGPS::coordinatesChanged,
-		this, &LocationInformationWidget::updateGpsCoordinates);
-	connect(this, &LocationInformationWidget::endEditDiveSite,
-		GlobeGPS::instance(), &GlobeGPS::repopulateLabels);
-#else
 	connect(this, &LocationInformationWidget::requestCoordinates,
 		MapWidget::instance(), &MapWidget::prepareForGetDiveCoordinates);
 	connect(this, &LocationInformationWidget::endRequestCoordinates,
@@ -63,10 +57,11 @@ LocationInformationWidget::LocationInformationWidget(QWidget *parent) : QGroupBo
 		this, &LocationInformationWidget::updateGpsCoordinates);
 	connect(this, &LocationInformationWidget::endEditDiveSite,
 		MapWidget::instance(), &MapWidget::repopulateLabels);
-#endif
+	connect(this, &LocationInformationWidget::coordinatesChanged,
+		MapWidget::instance(), &MapWidget::updateCurrentDiveSiteCoordinatesToMap);
 }
 
-bool LocationInformationWidget::eventFilter(QObject *, QEvent *ev)
+bool LocationInformationWidget::eventFilter(QObject *object, QEvent *ev)
 {
 	if (ev->type() == QEvent::ContextMenu) {
 		QContextMenuEvent *ctx = (QContextMenuEvent *)ev;
@@ -74,8 +69,16 @@ bool LocationInformationWidget::eventFilter(QObject *, QEvent *ev)
 		contextMenu.addAction(tr("Merge into current site"), this, SLOT(mergeSelectedDiveSites()));
 		contextMenu.exec(ctx->globalPos());
 		return true;
+	} else if (ev->type() == QEvent::FocusOut && object == ui.diveSiteCoordinates) {
+		emit coordinatesChanged();
 	}
 	return false;
+}
+
+void LocationInformationWidget::enableLocationButtons(bool enable)
+{
+	ui.geoCodeButton->setEnabled(enable);
+	ui.updateLocationButton->setEnabled(enable);
 }
 
 void LocationInformationWidget::mergeSelectedDiveSites()
@@ -105,6 +108,11 @@ void LocationInformationWidget::updateLabels()
 		ui.diveSiteName->setText(displayed_dive_site.name);
 	else
 		ui.diveSiteName->clear();
+	const char *country = taxonomy_get_country(&displayed_dive_site.taxonomy);
+	if (country)
+		ui.diveSiteCountry->setText(country);
+	else
+		ui.diveSiteCountry->clear();
 	if (displayed_dive_site.description)
 		ui.diveSiteDescription->setText(displayed_dive_site.description);
 	else
@@ -121,10 +129,18 @@ void LocationInformationWidget::updateLabels()
 		ui.diveSiteCoordinates->clear();
 	}
 
-	ui.locationTags->setText(constructLocationTags(displayed_dive_site.uuid));
+	ui.locationTags->setText(constructLocationTags(&displayed_dive_site, false));
 
-	emit startFilterDiveSite(displayed_dive_site.uuid);
-	emit startEditDiveSite(displayed_dive_site.uuid);
+}
+
+void LocationInformationWidget::clearLabels()
+{
+	ui.diveSiteName->clear();
+	ui.diveSiteCountry->clear();
+	ui.diveSiteDescription->clear();
+	ui.diveSiteNotes->clear();
+	ui.diveSiteCoordinates->clear();
+	ui.locationTags->clear();
 }
 
 void LocationInformationWidget::updateGpsCoordinates()
@@ -132,6 +148,7 @@ void LocationInformationWidget::updateGpsCoordinates()
 	QString oldText = ui.diveSiteCoordinates->text();
 	const char *coords = printGPSCoords(displayed_dive_site.latitude.udeg, displayed_dive_site.longitude.udeg);
 	ui.diveSiteCoordinates->setText(coords);
+	enableLocationButtons(dive_site_has_gps_location(&displayed_dive_site));
 	free((void *)coords);
 	if (oldText != ui.diveSiteCoordinates->text())
 		markChangedWidget(ui.diveSiteCoordinates);
@@ -141,34 +158,54 @@ void LocationInformationWidget::acceptChanges()
 {
 	char *uiString;
 	struct dive_site *currentDs;
-	uiString = ui.diveSiteName->text().toUtf8().data();
-
-	if (get_dive_site_by_uuid(displayed_dive_site.uuid) != NULL)
+	uiString = copy_string(ui.diveSiteName->text().toUtf8().data());
+	if (get_dive_site_by_uuid(displayed_dive_site.uuid) != NULL) {
 		currentDs = get_dive_site_by_uuid(displayed_dive_site.uuid);
-	else
+	} else {
+		qWarning() << "did not have valid dive site in LocationInformationWidget";
 		currentDs = get_dive_site_by_uuid(create_dive_site_from_current_dive(uiString));
-
+		displayed_dive.dive_site_uuid = currentDs->uuid;
+	}
 	currentDs->latitude = displayed_dive_site.latitude;
 	currentDs->longitude = displayed_dive_site.longitude;
 	if (!same_string(uiString, currentDs->name)) {
+		emit nameChanged(QString(currentDs->name), ui.diveSiteName->text());
 		free(currentDs->name);
-		currentDs->name = copy_string(uiString);
+		currentDs->name = uiString;
+	} else {
+		free(uiString);
 	}
-	uiString = ui.diveSiteDescription->text().toUtf8().data();
+	uiString = copy_string(ui.diveSiteDescription->text().toUtf8().data());
 	if (!same_string(uiString, currentDs->description)) {
 		free(currentDs->description);
-		currentDs->description = copy_string(uiString);
+		currentDs->description = uiString;
+	} else {
+		free(uiString);
 	}
-	uiString = ui.diveSiteNotes->document()->toPlainText().toUtf8().data();
+	uiString = copy_string(ui.diveSiteCountry->text().toUtf8().data());
+	// if the user entered a different contriy, first update the taxonomy
+	// for the displayed dive site; this below will get copied into the currentDs
+	if (!same_string(uiString, taxonomy_get_country(&displayed_dive_site.taxonomy)) &&
+	    !same_string(uiString, ""))
+		taxonomy_set_country(&displayed_dive_site.taxonomy, uiString, taxonomy_origin::GEOMANUAL);
+	else
+		free(uiString);
+	// now update the currentDs (which we then later copy back ontop of displayed_dive_site
+	copy_dive_site_taxonomy(&displayed_dive_site, currentDs);
+
+	uiString = copy_string(ui.diveSiteNotes->document()->toPlainText().toUtf8().data());
 	if (!same_string(uiString, currentDs->notes)) {
 		free(currentDs->notes);
-		currentDs->notes = copy_string(uiString);
+		currentDs->notes = uiString;
+	} else {
+		free(uiString);
 	}
+
 	if (!ui.diveSiteCoordinates->text().isEmpty()) {
 		double lat, lon;
 		parseGpsText(ui.diveSiteCoordinates->text(), &lat, &lon);
-		currentDs->latitude.udeg = (int)(lat * 1000000.0);
-		currentDs->longitude.udeg = (int)(lon * 1000000.0);
+		currentDs->latitude.udeg = lrint(lat * 1000000.0);
+		currentDs->longitude.udeg = lrint(lon * 1000000.0);
 	}
 	if (dive_site_is_empty(currentDs)) {
 		LocationInformationModel::instance()->removeRow(get_divesite_idx(currentDs));
@@ -196,11 +233,13 @@ void LocationInformationWidget::showEvent(QShowEvent *ev)
 {
 	if (displayed_dive_site.uuid) {
 		updateLabels();
-		ui.geoCodeButton->setEnabled(dive_site_has_gps_location(&displayed_dive_site));
+		enableLocationButtons(dive_site_has_gps_location(&displayed_dive_site));
 		QSortFilterProxyModel *m = qobject_cast<QSortFilterProxyModel *>(ui.diveSiteListView->model());
 		emit startFilterDiveSite(displayed_dive_site.uuid);
 		if (m)
 			m->invalidate();
+	} else {
+		clearLabels();
 	}
 	emit requestCoordinates();
 
@@ -243,16 +282,21 @@ void LocationInformationWidget::on_diveSiteCoordinates_textChanged(const QString
 	if (!same_string(qPrintable(text), coords)) {
 		double latitude, longitude;
 		if (parseGpsText(text, &latitude, &longitude)) {
-			displayed_dive_site.latitude.udeg = (int)(latitude * 1000000);
-			displayed_dive_site.longitude.udeg = (int)(longitude * 1000000);
+			displayed_dive_site.latitude.udeg = lrint(latitude * 1000000);
+			displayed_dive_site.longitude.udeg = lrint(longitude * 1000000);
 			markChangedWidget(ui.diveSiteCoordinates);
-			emit coordinatesChanged();
-			ui.geoCodeButton->setEnabled(latitude != 0 && longitude != 0);
+			enableLocationButtons(latitude != 0 && longitude != 0);
 		} else {
-			ui.geoCodeButton->setEnabled(false);
+			enableLocationButtons(false);
 		}
 	}
 	free((void *)coords);
+}
+
+void LocationInformationWidget::on_diveSiteCountry_textChanged(const QString& text)
+{
+	if (!same_string(qPrintable(text), taxonomy_get_country(&displayed_dive_site.taxonomy)))
+		markChangedWidget(ui.diveSiteCountry);
 }
 
 void LocationInformationWidget::on_diveSiteDescription_textChanged(const QString &text)
@@ -278,6 +322,7 @@ void LocationInformationWidget::resetPallete()
 	QPalette p;
 	ui.diveSiteCoordinates->setPalette(p);
 	ui.diveSiteDescription->setPalette(p);
+	ui.diveSiteCountry->setPalette(p);
 	ui.diveSiteName->setPalette(p);
 	ui.diveSiteNotes->setPalette(p);
 }
@@ -285,8 +330,13 @@ void LocationInformationWidget::resetPallete()
 void LocationInformationWidget::reverseGeocode()
 {
 	ReverseGeoLookupThread *geoLookup = ReverseGeoLookupThread::instance();
-	geoLookup->lookup(&displayed_dive_site);
+	geoLookup->run();
 	updateLabels();
+}
+
+void LocationInformationWidget::updateLocationOnMap()
+{
+	emit coordinatesChanged();
 }
 
 DiveLocationFilterProxyModel::DiveLocationFilterProxyModel(QObject *parent)
@@ -326,8 +376,8 @@ void DiveLocationModel::resetModel()
 
 QVariant DiveLocationModel::data(const QModelIndex &index, int role) const
 {
-	static const QIcon plusIcon(":plus");
-	static const QIcon geoCode(":geocode");
+	static const QIcon plusIcon(":list-add-icon");
+	static const QIcon geoCode(":geotag-icon");
 
 	if (index.row() <= 1) { // two special cases.
 		if (index.column() == UUID) {

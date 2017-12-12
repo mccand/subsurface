@@ -11,9 +11,9 @@ SearchBar::SearchBar(QWidget *parent): QWidget(parent)
 {
 	ui.setupUi(this);
 	#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
-	ui.findNext->setIcon(QIcon(":icons/subsurface/32x32/actions/go-down.png"));
-	ui.findPrev->setIcon(QIcon(":icons/subsurface/32x32/actions/go-up.png"));
-	ui.findClose->setIcon(QIcon(":icons/subsurface/32x32/actions/window-close.png"));
+	ui.findNext->setIcon(QIcon(":go-down-icon"));
+	ui.findPrev->setIcon(QIcon(":go-up-icon"));
+	ui.findClose->setIcon(QIcon(":window-close-icon"));
 	#endif
 
 	connect(ui.findNext, SIGNAL(pressed()), this, SIGNAL(searchNext()));
@@ -74,7 +74,7 @@ UserManual::UserManual(QWidget *parent) : QWidget(parent)
 	addAction(actionHideSearch);
 
 	setWindowTitle(tr("User manual"));
-	setWindowIcon(QIcon(":/subsurface-icon"));
+	setWindowIcon(QIcon(":subsurface-icon"));
 
 #ifdef USE_WEBENGINE
 	userManual = new MyQWebEngineView(this);

@@ -8,24 +8,27 @@ set -e
 TOP=$(pwd)
 SUBSURFACE_SOURCE=${TOP}/../../../subsurface
 IOS_QT=${TOP}/Qt
-QT_VERSION=$(cd ${IOS_QT}; ls -d 5.*)
+QT_VERSION=$(cd ${IOS_QT}; ls -d [1-9]* | awk -F. '{ printf("%02d.%02d.%02d\n", $1,$2,$3); }' | sort -n | tail -1 | sed -e 's/\.0/\./g;s/^0//')
+
+if [ -z $QT_VERSION ] ; then
+	echo "Couldn't determine Qt version; giving up"
+	exit 1
+fi
 
 # Which versions are we building against?
 SQLITE_VERSION=3090200
 LIBXML2_VERSION=2.9.2
 LIBXSLT_VERSION=1.1.28
 LIBZIP_VERSION=0.11.2
-LIBGIT2_VERSION=0.23.4
-LIBSSH2_VERSION=1.6.0
-OPENSSL_VERSION=1.0.1p
+LIBGIT2_VERSION=0.26.0
 
 # not on iOS so far, but kept here for completeness
 LIBUSB_VERSION=1.0.19
 LIBFTDI_VERSION=1.2
 
 # set up the Subsurface versions by hand
-GITVERSION=$(git describe --tags --abbrev=12)
-CANONICALVERSION=$(git describe --tags --abbrev=12 | sed -e 's/-g.*$// ; s/^v//' | sed -e 's/-/./')
+GITVERSION=$(git describe --abbrev=12)
+CANONICALVERSION=$(git describe --abbrev=12 | sed -e 's/-g.*$// ; s/^v//' | sed -e 's/-/./')
 MOBILEVERSION=$(grep MOBILE ../../cmake/Modules/version.cmake | cut -d\" -f 2)
 echo "#define GIT_VERSION_STRING \"$GITVERSION\"" > subsurface-mobile/ssrf-version.h
 echo "#define CANONICAL_VERSION_STRING \"$CANONICALVERSION\"" >> subsurface-mobile/ssrf-version.h
@@ -33,6 +36,10 @@ echo "#define MOBILE_VERSION_STRING \"$MOBILEVERSION\"" >> subsurface-mobile/ssr
 
 # create Info.plist with the correct versions
 cat Info.plist.in | sed "s/@MOBILE_VERSION@/$MOBILEVERSION/;s/@CANONICAL_VERSION@/$CANONICALVERSION/" > Info.plist
+
+if [ "$1" = "version" ] ; then
+	exit 0
+fi
 
 # Build Subsurface-mobile by default
 SUBSURFACE_MOBILE=1
@@ -118,7 +125,7 @@ echo next building for $ARCH
 		# so let's hack around that
 		make libsqlite3.la
 		touch sqlite3
-		make install
+		make install-libLTLIBRARIES
 		popd
 	fi
 
@@ -175,79 +182,6 @@ echo next building for $ARCH
 		popd
 	fi
 
-	configure_openssl() {
-	    OS=$1
-	    ARCH=$2
-	    PLATFORM=$3
-	    SDK_VERSION=$4
-	    DEPLOYMENT_VERSION=$5
-
-	    export CROSS_TOP="${PLATFORM}/Developer"
-	    export CROSS_SDK="${OS}${SDK_VERSION}.sdk"
-	    if [ "$ARCH_NAME" == "x86_64" ]; then
-	      ./Configure darwin64-${ARCH}-cc --openssldir="${PREFIX}" --prefix="${PREFIX}"
-	      sed -ie "s!^CFLAG=!CFLAG=-isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -arch $ARCH -mios-simulator-version-min=${DEPLOYMENT_VERSION} -fembed-bitcode !" "Makefile"
-	    else
-	      ./Configure iphoneos-cross -no-asm --openssldir="${PREFIX}"
-	      sed -ie "s!^CFLAG=!CFLAG=-isysroot ${CROSS_TOP}/SDKs/${CROSS_SDK} -arch $ARCH -miphoneos-version-min=${DEPLOYMENT_VERSION} -fembed-bitcode !" "Makefile"
-	      perl -i -pe 's|static volatile sig_atomic_t intr_signal|static volatile int intr_signal|' crypto/ui/ui_openssl.c
-	    fi
-	}
-
-	build_openssl()
-	{
-	   ARCH=$1
-	   SDK=$2
-	   TYPE=$3
-	   export BUILD_TOOLS="${DEVELOPER}"
-	   mkdir -p "lib-${TYPE}"
-
-	   rm -rf openssl-${OPENSSL_VERSION}
-	   tar xfz openssl-${OPENSSL_VERSION}.tar.gz
-	   pushd .
-	   cd "openssl-${OPENSSL_VERSION}"
-	   #fix header for Swift
-	   sed -ie "s/BIGNUM \*I,/BIGNUM \*i,/g" crypto/rsa/rsa.h
-	   if [ "$TYPE" == "ios" ]; then
-	     if [ "$ARCH" == "x86_64" ]; then
-		 configure_openssl "iPhoneSimulator" $ARCH ${IPHONESIMULATOR_PLATFORM} ${IPHONEOS_SDK_VERSION} ${IPHONEOS_DEPLOYMENT_VERSION}
-	     else
-		 configure_openssl "iPhoneOS" $ARCH ${IPHONEOS_PLATFORM} ${IPHONEOS_SDK_VERSION} ${IPHONEOS_DEPLOYMENT_VERSION}
-	     fi
-	   fi
-	   make
-	   make install_sw
-	   popd
-	}
-
-	if [ ! -e openssl-${OPENSSL_VERSION}.tar.gz ] ; then
-		wget -O openssl-${OPENSSL_VERSION}.tar.gz http://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
-	fi
-	if [ ! -e openssl-build-$ARCH ] ; then
-		tar -zxf openssl-${OPENSSL_VERSION}.tar.gz
-		mv openssl-${OPENSSL_VERSION} openssl-build-$ARCH
-	fi
-	if [ ! -e $PKG_CONFIG_LIBDIR/libssl.pc ] ; then
-		build_openssl "$ARCH" "${IPHONESIMULATOR_SDK}" "ios"
-	fi
-
-	if [ ! -e libssh2-${LIBSSH2_VERSION}.tar.gz ] ; then
-		wget http://www.libssh2.org/download/libssh2-${LIBSSH2_VERSION}.tar.gz
-	fi
-	if [ ! -e libssh2-${LIBSSH2_VERSION} ] ; then
-		tar -zxf libssh2-${LIBSSH2_VERSION}.tar.gz
-	fi
-	if [ ! -e $PKG_CONFIG_LIBDIR/libssh2.pc ] ; then
-		mkdir -p libssh2-build-$ARCH
-		pushd libssh2-build-$ARCH
-		../libssh2-${LIBSSH2_VERSION}/configure --host=${BUILDCHAIN} --prefix=${PREFIX} --enable-static --disable-shared
-		make
-		make install
-		# Patch away pkg-config dependency to zlib, its there, i promise
-		perl -pi -e 's/^(Requires.private:.*),zlib$/$1 $2/' $PKG_CONFIG_LIBDIR/libssh2.pc
-		popd
-	fi
-
 	if [ ! -e libgit2-${LIBGIT2_VERSION}.tar.gz ] ; then
 		wget -O libgit2-${LIBGIT2_VERSION}.tar.gz https://github.com/libgit2/libgit2/archive/v${LIBGIT2_VERSION}.tar.gz
 	fi
@@ -266,11 +200,7 @@ echo next building for $ARCH
 			-DCMAKE_INSTALL_PREFIX=${PREFIX} \
 			-DCMAKE_PREFIX_PATH=${PREFIX} \
 			-DCURL=OFF \
-			-DUSE_SSH=ON \
-			-DOPENSSL_SSL_LIBRARY=${PREFIX}/lib/libssl.a \
-			-DOPENSSL_CRYPTO_LIBRARY=${PREFIX}/lib/libcrypto.a \
-			-DOPENSSL_INCLUDE_DIR=${PREFIX}/include/openssl \
-			-D_OPENSSL_VERSION=1.0.1p \
+			-DUSE_SSH=OFF \
 			../libgit2-${LIBGIT2_VERSION}/
 		make
 		make install
@@ -334,24 +264,20 @@ echo next building for $ARCH
 #
 
 # build libdivecomputer
-	if [ ! -d libdivecomputer ] ; then
-		git clone -b Subsurface-branch https://github.com/Subsurface-divelog/libdc.git libdivecomputer
-	fi
-	cd libdivecomputer
-	git pull --rebase
-	if ! git checkout Subsurface-branch ; then
-		echo "can't check out the Subsurface-branch branch of libdivecomputer -- giving up"
-		exit 1
-	fi
-	if [ ! -f configure ] ; then
+	if [ ! -d ../../libdivecomputer/src ] ; then
+		pushd ../..
+		git submodule init
+		git submodule update --recursive
+		pushd libdivecomputer
 		autoreconf --install
+		autoreconf --install
+		popd
+		popd
 	fi
-	cd ..
-
 	if [ ! -e $PKG_CONFIG_LIBDIR/libdivecomputer.pc ] ; then
 		mkdir -p libdivecomputer-build-$ARCH
 		pushd libdivecomputer-build-$ARCH
-		../libdivecomputer/configure --host=${BUILDCHAIN} --prefix=${PREFIX} --enable-static --disable-shared --enable-examples=no --without-libusb --without-hidapi
+		../../../libdivecomputer/configure --host=${BUILDCHAIN} --prefix=${PREFIX} --enable-static --disable-shared --enable-examples=no --without-libusb --without-hidapi --enable-ble
 		make
 		make install
 		popd
@@ -376,3 +302,11 @@ for src in $SRCS; do
 	${IOS_QT}/${QT_VERSION}/ios/bin/lrelease ${SUBSURFACE_SOURCE}/translations/$src -qm translations/${src/.ts/.qm}
 done
 popd
+
+# in order to be able to use xcode without going through Qt Creator
+# call qmake directly
+mkdir -p build-Subsurface-mobile-Qt_$(echo ${QT_VERSION} | tr . _)_for_iOS-Debug
+cd build-Subsurface-mobile-Qt_$(echo ${QT_VERSION} | tr . _)_for_iOS-Debug
+${IOS_QT}/${QT_VERSION}/ios/bin/qmake ../Subsurface-mobile/Subsurface-mobile.pro \
+	-spec macx-ios-clang CONFIG+=iphoneos CONFIG+=device CONFIG+=qml_debug
+make qmake_all

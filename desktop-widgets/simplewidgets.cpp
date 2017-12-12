@@ -30,13 +30,13 @@ public:
 	MinMaxAvgWidgetPrivate(MinMaxAvgWidget *owner)
 	{
 		avgIco = new QLabel(owner);
-		avgIco->setPixmap(QIcon(":/average").pixmap(16, 16));
+		avgIco->setPixmap(QIcon(":value-average-icon").pixmap(16, 16));
 		avgIco->setToolTip(QObject::tr("Average"));
 		minIco = new QLabel(owner);
-		minIco->setPixmap(QIcon(":/minimum").pixmap(16, 16));
+		minIco->setPixmap(QIcon(":value-minimum-icon").pixmap(16, 16));
 		minIco->setToolTip(QObject::tr("Minimum"));
 		maxIco = new QLabel(owner);
-		maxIco->setPixmap(QIcon(":/maximum").pixmap(16, 16));
+		maxIco->setPixmap(QIcon(":value-maximum-icon").pixmap(16, 16));
 		maxIco->setToolTip(QObject::tr("Maximum"));
 		avgValue = new QLabel(owner);
 		minValue = new QLabel(owner);
@@ -310,7 +310,7 @@ void ShiftImageTimesDialog::syncCameraClicked()
 	QStringList fileNames = QFileDialog::getOpenFileNames(this,
 							      tr("Open image file"),
 							      DiveListView::lastUsedImageDir(),
-							      tr("Image files (*.jpg *.jpeg)"));
+							      tr("Image files") + " (*.jpg *.jpeg)");
 	if (fileNames.isEmpty())
 		return;
 
@@ -653,6 +653,7 @@ void MultiFilter::closeFilter()
 {
 	MultiFilterSortModel::instance()->clearFilter();
 	hide();
+	MainWindow::instance()->setCheckedActionFilterTags(false);
 }
 
 TextHyperlinkEventFilter::TextHyperlinkEventFilter(QTextEdit *txtEdit) : QObject(txtEdit),

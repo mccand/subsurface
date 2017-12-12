@@ -43,12 +43,8 @@ QString weight_string(int weight_in_grams)
 {
 	QString str;
 	if (get_units()->weight == units::KG) {
-		int gr = weight_in_grams % 1000;
-		int kg = weight_in_grams / 1000;
-		if (kg >= 20.0)
-			str = QString("%1").arg(kg + (gr >= 500 ? 1 : 0));
-		else
-			str = QString("%1.%2").arg(kg).arg((unsigned)(gr + 50) / 100);
+		double kg = (double) weight_in_grams / 1000.0;
+		str = QString("%1").arg(kg, 0, 'f', kg >= 20.0 ? 0 : 1);
 	} else {
 		double lbs = grams_to_lbs(weight_in_grams);
 		str = QString("%1").arg(lbs, 0, 'f', lbs >= 40.0 ? 0 : 1);
@@ -541,11 +537,11 @@ QString uiLanguage(QLocale *callerLoc)
 		// messes things up there
 		dateFormat.replace("'en' 'den' d:'e'", " d");
 		if (!prefs.date_format_override || same_string(prefs.date_format, "")) {
-			free((void*)prefs.date_format);
+			free((void *)prefs.date_format);
 			prefs.date_format = strdup(qPrintable(dateFormat));
 		}
 		if (!prefs.date_format_override || same_string(prefs.date_format_short, "")) {
-			free((void*)prefs.date_format_short);
+			free((void *)prefs.date_format_short);
 			prefs.date_format_short = strdup(qPrintable(shortDateFormat));
 		}
 	}
@@ -553,7 +549,7 @@ QString uiLanguage(QLocale *callerLoc)
 		timeFormat = loc.timeFormat();
 		timeFormat.replace("(t)", "").replace(" t", "").replace("t", "").replace("hh", "h").replace("HH", "H").replace("'kl'.", "");
 		timeFormat.replace(".ss", "").replace(":ss", "").replace("ss", "");
-		free((void*)prefs.time_format);
+		free((void *)prefs.time_format);
 		prefs.time_format = strdup(qPrintable(timeFormat));
 	}
 	return uiLang;
@@ -564,15 +560,10 @@ QLocale getLocale()
 	return loc;
 }
 
-void set_filename(const char *filename, bool force)
+void set_filename(const char *filename)
 {
-	if (!force && existing_filename)
-		return;
 	free((void *)existing_filename);
-	if (filename)
-		existing_filename = strdup(filename);
-	else
-		existing_filename = NULL;
+	existing_filename = copy_string(filename);
 }
 
 const QString get_dc_nickname(const char *model, uint32_t deviceid)
@@ -944,7 +935,7 @@ QString get_dive_duration_string(timestamp_t when, QString hoursText, QString mi
 			.arg(secs).arg(secondsText);
 	} else if (isFreeDive) {
 		// Mixed display (hh:mm / mm only) and freedive < 1h and we have no unit for minutes
-		// --> Prefix duration with "0:" --> "0:05:35" 
+		// --> Prefix duration with "0:" --> "0:05:35"
 		if (separator == ":") displayTime = QString("%1%2%3%4%5%6").arg(hrs).arg(separator)
 			.arg(fullmins, 2, 10, QChar('0')).arg(separator)
 			.arg(secs, 2, 10, QChar('0')).arg(hoursText);
@@ -1294,8 +1285,8 @@ extern "C" void picture_load_exif_data(struct picture *p)
 		goto picture_load_exit;
 	if (exif.parseFrom((const unsigned char *)mem.buffer, (unsigned)mem.size) != PARSE_EXIF_SUCCESS)
 		goto picture_load_exit;
-	p->longitude.udeg= llrint(1000000.0 * exif.GeoLocation.Longitude);
-	p->latitude.udeg  = llrint(1000000.0 * exif.GeoLocation.Latitude);
+	p->longitude.udeg = lrint(1000000.0 * exif.GeoLocation.Longitude);
+	p->latitude.udeg = lrint(1000000.0 * exif.GeoLocation.Latitude);
 
 picture_load_exit:
 	free(mem.buffer);
@@ -1442,7 +1433,7 @@ int getCloudURL(QString &filename)
 	if (email.isEmpty() || same_string(prefs.cloud_storage_password, ""))
 		return report_error("Please configure Cloud storage email and password in the preferences");
 	if (email != prefs.cloud_storage_email_encoded) {
-		free(prefs.cloud_storage_email_encoded);
+		free((void *)prefs.cloud_storage_email_encoded);
 		prefs.cloud_storage_email_encoded = strdup(qPrintable(email));
 	}
 	filename = QString(QString(prefs.cloud_git_url) + "/%1[%1]").arg(email);
@@ -1713,4 +1704,42 @@ char *intdup(int index)
 	snprintf(tmpbuf, sizeof(tmpbuf) - 2, "%d", index);
 	tmpbuf[20] = 0;
 	return strdup(tmpbuf);
+}
+
+QHash<int, double> factor_cache;
+
+QMutex factorCacheLock;
+extern "C" double cache_value(int tissue, int timestep, enum inertgas inertgas)
+{
+	int key = (timestep << 5) + (tissue << 1);
+	if (inertgas == HE)
+		++key;
+	QMutexLocker locker(&factorCacheLock);
+	return factor_cache.value(key);
+}
+
+extern "C" void cache_insert(int tissue, int timestep, enum inertgas inertgas, double value)
+{
+	int key = (timestep << 5) + (tissue << 1);
+	if (inertgas == HE)
+		++key;
+	QMutexLocker locker(&factorCacheLock);
+	factor_cache.insert(key, value);
+}
+
+extern "C" void print_qt_versions()
+{
+	printf("%s\n", QStringLiteral("built with Qt Version %1, runtime from Qt Version %2").arg(QT_VERSION_STR).arg(qVersion()).toUtf8().data());
+}
+
+QMutex planLock;
+
+extern "C" void lock_planner()
+{
+	planLock.lock();
+}
+
+extern "C" void unlock_planner()
+{
+	planLock.unlock();
 }

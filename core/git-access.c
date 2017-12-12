@@ -607,7 +607,9 @@ int sync_with_remote(git_repository *repo, const char *remote, const char *branc
 		else
 			report_error("Unable to fetch remote '%s'", remote);
 		if (verbose)
-			fprintf(stderr, "remote fetch failed (%s)\n", giterr_last()->message);
+			// If we returned GIT_EUSER during authentication, giterr_last() returns NULL
+			fprintf(stderr, "remote fetch failed (%s)\n",
+				giterr_last() ? giterr_last()->message : "authentication failed");
 		error = 0;
 	} else {
 		error = check_remote_status(repo, origin, remote, branch, rt);
@@ -737,15 +739,20 @@ static git_repository *create_local_repo(const char *localdir, const char *remot
 		fprintf(stderr, "git storage: returned from git_clone() with error %d\n", error);
 	if (error) {
 		char *msg = "";
-		if (giterr_last())
+		if (giterr_last()) {
 			 msg = giterr_last()->message;
+			 fprintf(stderr, "error message was %s\n", msg);
+		}
 		int len = sizeof("reference 'refs/remotes/origin/' not found") + strlen(branch);
 		char *pattern = malloc(len);
+		// it seems that we sometimes get 'Reference' and sometimes 'reference'
 		snprintf(pattern, len, "reference 'refs/remotes/origin/%s' not found", branch);
-		if (strstr(remote, prefs.cloud_git_url) && strstr(msg, pattern)) {
+		if (strstr(remote, prefs.cloud_git_url) && includes_string_caseinsensitive(msg, pattern)) {
 			/* we're trying to open the remote branch that corresponds
 			 * to our cloud storage and the branch doesn't exist.
 			 * So we need to create the branch and push it to the remote */
+			if (verbose)
+				fprintf(stderr, "remote repo didn't include our branch\n");
 			cloned_repo = create_and_push_remote(localdir, remote, branch);
 #if !defined(DEBUG) && !defined(SUBSURFACE_MOBILE)
 		} else if (is_subsurface_cloud) {
@@ -827,15 +834,10 @@ static struct git_repository *is_remote_git_repository(char *remote, const char 
 	if (*p++ != '/' || *p++ != '/')
 		return NULL;
 
-	/* Special-case "file://", since it's already local */
-	if (!strncmp(remote, "file://", 7))
-		remote += 7;
-
 	/*
-	 * Ok, we found "[a-z]*://", we've simplified the
-	 * local repo case (because libgit2 is insanely slow
-	 * for that), and we think we have a real "remote
-	 * git" format.
+	 * Ok, we found "[a-z]*://" and we think we have a real
+	 * "remote git" format. The "file://" case was handled
+	 * in the calling function.
 	 *
 	 * We now create the SHA1 hash of the whole thing,
 	 * including the branch name. That will be our unique
@@ -900,6 +902,15 @@ struct git_repository *is_git_repository(const char *filename, const char **bran
 	if (!flen || filename[--flen] != ']')
 		return NULL;
 
+	/*
+	 * Special-case "file://", and treat it as a local
+	 * repository since libgit2 is insanely slow for that.
+	 */
+	if (!strncmp(filename, "file://", 7)) {
+		filename += 7;
+		flen -= 7;
+	}
+
 	/* Find the matching '[' */
 	blen = 0;
 	while (flen && filename[--flen] != '[')
@@ -955,6 +966,8 @@ struct git_repository *is_git_repository(const char *filename, const char **bran
 	}
 
 	if (subsurface_stat(loc, &st) < 0 || !S_ISDIR(st.st_mode)) {
+		if (verbose)
+			fprintf(stderr, "loc %s wasn't found or is not a directory\n", loc);
 		free(loc);
 		free(branch);
 		return dummy_git_repository;
@@ -983,5 +996,6 @@ int git_create_local_repo(const char *filename)
 	free(path);
 	if (ret != 0)
 		(void)report_error("Create local repo failed with error code %d", ret);
+	git_repository_free(repo);
 	return ret;
 }

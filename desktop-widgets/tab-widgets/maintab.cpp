@@ -7,7 +7,6 @@
  */
 #include "desktop-widgets/tab-widgets/maintab.h"
 #include "desktop-widgets/mainwindow.h"
-#include "desktop-widgets/globe.h"
 #include "desktop-widgets/mapwidget.h"
 #include "core/helpers.h"
 #include "core/statistics.h"
@@ -22,7 +21,9 @@
 #include "qt-models/weightmodel.h"
 #include "qt-models/divecomputerextradatamodel.h"
 #include "qt-models/divelocationmodel.h"
+#include "qt-models/filtermodels.h"
 #include "core/divesite.h"
+#include "desktop-widgets/locationinformation.h"
 #include "desktop-widgets/locationinformation.h"
 
 #include "TabDiveExtraInfo.h"
@@ -43,7 +44,9 @@ MainTab::MainTab(QWidget *parent) : QTabWidget(parent),
 	cylindersModel(new CylindersModel(this)),
 	editMode(NONE),
 	copyPaste(false),
-	currentTrip(0)
+	currentTrip(0),
+	lastTabSelectedDive(0),
+	lastTabSelectedDiveTrip(0)
 {
 	ui.setupUi(this);
 
@@ -72,13 +75,8 @@ MainTab::MainTab(QWidget *parent) : QTabWidget(parent),
 	closeMessage();
 
 	connect(ui.editDiveSiteButton, SIGNAL(clicked()), MainWindow::instance(), SIGNAL(startDiveSiteEdit()));
-#ifndef NO_MARBLE
-	connect(ui.location, &DiveLocationLineEdit::entered, GlobeGPS::instance(), &GlobeGPS::centerOnIndex);
-	connect(ui.location, &DiveLocationLineEdit::currentChanged, GlobeGPS::instance(), &GlobeGPS::centerOnIndex);
-#else
 	connect(ui.location, &DiveLocationLineEdit::entered, MapWidget::instance(), &MapWidget::centerOnIndex);
 	connect(ui.location, &DiveLocationLineEdit::currentChanged, MapWidget::instance(), &MapWidget::centerOnIndex);
-#endif
 
 	QAction *action = new QAction(tr("Apply changes"), this);
 	connect(action, SIGNAL(triggered(bool)), this, SLOT(acceptChanges()));
@@ -207,6 +205,7 @@ MainTab::MainTab(QWidget *parent) : QTabWidget(parent),
 
 	connect(ui.diveNotesMessage, &KMessageWidget::showAnimationFinished,
 					ui.location, &DiveLocationLineEdit::fixPopupPosition);
+	connect(this, SIGNAL(diveSiteAdded(const QString &)), LocationFilterModel::instance(), SLOT(addName(const QString &)));
 
 	// enable URL clickability in notes:
 	new TextHyperlinkEventFilter(ui.notes);//destroyed when ui.notes is destroyed
@@ -388,13 +387,6 @@ void MainTab::showLocation()
 		ui.location->clear();
 }
 
-// Seems wrong, since we can also call updateDiveInfo(), but since the updateDiveInfo
-// has a parameter on it's definition it didn't worked on the signal slot connection.
-void MainTab::refreshDiveInfo()
-{
-	updateDiveInfo();
-}
-
 void MainTab::updateDepthDuration()
 {
 	ui.depth->setVisible(true);
@@ -436,12 +428,13 @@ void MainTab::updateDiveInfo(bool clear)
 	ui.notes->setText(QString());
 	if (!clear) {
 		QString tmp(displayed_dive.notes);
-		if (tmp.indexOf("<table") != -1)
+		if (tmp.indexOf("<table") != -1) {
+			tmp.replace(QString("\n"), QString("<br>"));
 			ui.notes->setHtml(tmp);
-		else
+		} else {
 			ui.notes->setPlainText(tmp);
+		}
 	}
-	UPDATE_TEXT(displayed_dive, notes);
 	UPDATE_TEXT(displayed_dive, suit);
 	UPDATE_TEXT(displayed_dive, divemaster);
 	UPDATE_TEXT(displayed_dive, buddy);
@@ -464,9 +457,10 @@ void MainTab::updateDiveInfo(bool clear)
 
 		if (ds) {
 			ui.location->setCurrentDiveSiteUuid(ds->uuid);
-			ui.locationTags->setText(constructLocationTags(ds->uuid));
+			ui.locationTags->setText(constructLocationTags(ds, true));
 		} else {
 			ui.location->clear();
+			ui.locationTags->clear();
 			clear_dive_site(&displayed_dive_site);
 		}
 
@@ -477,7 +471,18 @@ void MainTab::updateDiveInfo(bool clear)
 		ui.dateEdit->setDate(localTime.date());
 		ui.timeEdit->setTime(localTime.time());
 		if (MainWindow::instance() && MainWindow::instance()->dive_list()->selectedTrips().count() == 1) {
-			setTabText(0, tr("Trip notes"));
+			// Remember the tab selected for last dive
+			if (lastSelectedDive)
+				lastTabSelectedDive = ui.tabWidget->currentIndex();
+			ui.tabWidget->setTabText(0, tr("Trip notes"));
+			ui.tabWidget->setTabEnabled(1, false);
+			ui.tabWidget->setTabEnabled(2, false);
+			ui.tabWidget->setTabEnabled(4, false);
+			ui.tabWidget->setTabEnabled(5, false);
+			// Recover the tab selected for last dive trip
+			if (lastSelectedDive)
+				ui.tabWidget->setCurrentIndex(lastTabSelectedDiveTrip);
+			lastSelectedDive = false;
 			currentTrip = *MainWindow::instance()->dive_list()->selectedTrips().begin();
 			// only use trip relevant fields
 			ui.divemaster->setVisible(false);
@@ -499,7 +504,7 @@ void MainTab::updateDiveInfo(bool clear)
 			ui.waterTempLabel->setVisible(false);
 			ui.watertemp->setVisible(false);
 			ui.dateEdit->setReadOnly(true);
-			ui.label->setVisible(false);
+			ui.timeLabel->setVisible(false);
 			ui.timeEdit->setVisible(false);
 			ui.diveTripLocation->show();
 			ui.location->hide();
@@ -519,7 +524,18 @@ void MainTab::updateDiveInfo(bool clear)
 			ui.duration->setVisible(false);
 			ui.durationLabel->setVisible(false);
 		} else {
-			setTabText(0, tr("Notes"));
+			// Remember the tab selected for last dive trip
+			if (!lastSelectedDive)
+				lastTabSelectedDiveTrip = ui.tabWidget->currentIndex();
+			ui.tabWidget->setTabText(0, tr("Notes"));
+			ui.tabWidget->setTabEnabled(1, true);
+			ui.tabWidget->setTabEnabled(2, true);
+			ui.tabWidget->setTabEnabled(4, true);
+			ui.tabWidget->setTabEnabled(5, true);
+			// Recover the tab selected for last dive
+			if (!lastSelectedDive)
+				ui.tabWidget->setCurrentIndex(lastTabSelectedDive);
+			lastSelectedDive = true;
 			currentTrip = NULL;
 			// make all the fields visible writeable
 			ui.diveTripLocation->hide();
@@ -544,7 +560,7 @@ void MainTab::updateDiveInfo(bool clear)
 			ui.waterTempLabel->setVisible(true);
 			ui.watertemp->setVisible(true);
 			ui.dateEdit->setReadOnly(false);
-			ui.label->setVisible(true);
+			ui.timeLabel->setVisible(true);
 			ui.timeEdit->setVisible(true);
 			/* and fill them from the dive */
 			ui.rating->setCurrentStars(displayed_dive.rating);
@@ -557,11 +573,13 @@ void MainTab::updateDiveInfo(bool clear)
 			weightModel->updateDive();
 			taglist_get_tagstring(displayed_dive.tag_list, buf, 1024);
 			ui.tagWidget->setText(QString(buf));
-			bool isManual = !current_dive || same_string(current_dive->dc.model, "manually added dive");
-			ui.depth->setVisible(isManual);
-			ui.depthLabel->setVisible(isManual);
-			ui.duration->setVisible(isManual);
-			ui.durationLabel->setVisible(isManual);
+			if (current_dive) {
+				bool isManual = same_string(current_dive->dc.model, "manually added dive");
+				ui.depth->setVisible(isManual);
+				ui.depthLabel->setVisible(isManual);
+				ui.duration->setVisible(isManual);
+				ui.durationLabel->setVisible(isManual);
+			}
 		}
 		ui.duration->setText(QDateTime::fromTime_t(displayed_dive.duration.seconds).toUTC().toString("h:mm"));
 		ui.depth->setText(get_depth_string(displayed_dive.maxdepth, true));
@@ -578,7 +596,7 @@ void MainTab::updateDiveInfo(bool clear)
 		QString gasUsedString;
 		volume_t vol;
 		selectedDivesGasUsed(gasUsed);
-		for (int j = 0; j < 20; j++) {
+		for (int j = 0; j < MAX_CYLINDERS; j++) {
 			if (gasUsed.isEmpty())
 				break;
 			QPair<QString, int> gasPair = gasUsed.last();
@@ -595,6 +613,7 @@ void MainTab::updateDiveInfo(bool clear)
 			ui.locationTags->hide();
 		else
 			ui.locationTags->show();
+		ui.editDiveSiteButton->setEnabled(!ui.location->text().isEmpty());
 		/* unset the special value text for date and time, just in case someone dove at midnight */
 		ui.dateEdit->setSpecialValueText(QString(""));
 		ui.timeEdit->setSpecialValueText(QString(""));
@@ -714,8 +733,10 @@ uint32_t MainTab::updateDiveSite(uint32_t pickedUuid, int divenr)
 		return origUuid;
 
 	if (pickedUuid == RECENTLY_ADDED_DIVESITE) {
-		pickedUuid = create_dive_site(ui.location->text().isEmpty() ? qPrintable(tr("New dive site")) : qPrintable(ui.location->text()), displayed_dive.when);
+		QString name = ui.location->text().isEmpty() ? tr("New dive site") : ui.location->text();
+		pickedUuid = create_dive_site(qPrintable(name), displayed_dive.when);
 		createdNewDive = true;
+		emit diveSiteAdded(name);
 	}
 
 	newDs = get_dive_site_by_uuid(pickedUuid);
@@ -803,7 +824,6 @@ void MainTab::acceptChanges()
 			addedId = displayed_dive.id;
 		}
 		struct dive *cd = current_dive;
-		struct divecomputer *displayed_dc = get_dive_dc(&displayed_dive, dc_number);
 		// now check if something has changed and if yes, edit the selected dives that
 		// were identical with the master dive shown (and mark the divelist as changed)
 		if (!same_string(displayed_dive.suit, cd->suit))
@@ -869,12 +889,15 @@ void MainTab::acceptChanges()
 				cd->cylinder[i].type.description = copy_string(displayed_dive.cylinder[i].type.description);
 			}
 			/* if cylinders changed we may have changed gas change events
+			 * and sensor idx in samples as well
 			 * - so far this is ONLY supported for a single selected dive */
 			struct divecomputer *tdc = &current_dive->dc;
 			struct divecomputer *sdc = &displayed_dive.dc;
 			while(tdc && sdc) {
 				free_events(tdc->events);
 				copy_events(sdc, tdc);
+				free(tdc->sample);
+				copy_samples(sdc, tdc);
 				tdc = tdc->next;
 				sdc = sdc->next;
 			}
@@ -911,11 +934,7 @@ void MainTab::acceptChanges()
 				qDebug() << "delete now unused dive site" << ((ds && ds->name) ? ds->name : "without name");
 			}
 			delete_dive_site(oldUuid);
-#ifndef NO_MARBLE
-			GlobeGPS::instance()->reload();
-#else
 			MapWidget::instance()->reload();
-#endif
 		}
 		// the code above can change the correct uuid for the displayed dive site - and the
 		// code below triggers an update of the display without re-initializing displayed_dive
@@ -979,7 +998,7 @@ void MainTab::acceptChanges()
 	weightModel->changed = false;
 	MainWindow::instance()->setEnabledToolbar(true);
 	acceptingEdit = false;
-	ui.editDiveSiteButton->setEnabled(true);
+	ui.editDiveSiteButton->setEnabled(!ui.location->text().isEmpty());
 }
 
 void MainTab::resetPallete()
@@ -1047,11 +1066,7 @@ void MainTab::rejectChanges()
 	}
 	// the user could have edited the location and then canceled the edit
 	// let's get the correct location back in view
-#ifndef NO_MARBLE
-	GlobeGPS::instance()->centerOnDiveSite(get_dive_site_by_uuid(displayed_dive.dive_site_uuid));
-#else
 	MapWidget::instance()->centerOnDiveSite(get_dive_site_by_uuid(displayed_dive.dive_site_uuid));
-#endif
 	// show the profile and dive info
 	MainWindow::instance()->graphics()->replot();
 	MainWindow::instance()->setEnabledToolbar(true);
@@ -1059,7 +1074,7 @@ void MainTab::rejectChanges()
 	weightModel->changed = false;
 	cylindersModel->updateDive();
 	weightModel->updateDive();
-	ui.editDiveSiteButton->setEnabled(true);
+	ui.editDiveSiteButton->setEnabled(!ui.location->text().isEmpty());
 }
 #undef EDIT_TEXT2
 
@@ -1158,7 +1173,6 @@ void MainTab::divetype_Changed(int index)
 {
 	if (editMode == IGNORE)
 		return;
-	struct divecomputer *displayed_dc = get_dive_dc(&displayed_dive, dc_number);
 	displayed_dc->divemode = (enum dive_comp_type) index;
 	update_setpoint_events(&displayed_dive, displayed_dc);
 	markChangedWidget(ui.DiveType);
@@ -1507,10 +1521,12 @@ void MainTab::showAndTriggerEditSelective(struct dive_components what)
 	SHOW_SELECTIVE(suit);
 	if (what.notes) {
 		QString tmp(displayed_dive.notes);
-		if (tmp.contains("<table"))
+		if (tmp.contains("<table")) {
+			tmp.replace(QString("\n"), QString("<br>"));
 			ui.notes->setHtml(tmp);
-		else
+		} else {
 			ui.notes->setPlainText(tmp);
+		}
 	}
 	if (what.rating)
 		ui.rating->setCurrentStars(displayed_dive.rating);

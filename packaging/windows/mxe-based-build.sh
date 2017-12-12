@@ -3,12 +3,10 @@
 # build Subsurface for Win32
 #
 # this file assumes that you have installed MXE on your system
-# and installed a number of dependencies as well. Latest MXE
-# version from git may not always work for Qt5 and Subsurface.
-# Try to select an older release version like build-2016-10-12.
+# and installed a number of dependencies as well.
 #
 # cd ~/src
-# git clone --branch build-2016-10-12 https://github.com/mxe/mxe
+# git clone https://github.com/mxe/mxe
 # cd mxe
 #
 # now create a file settings.mk
@@ -43,11 +41,9 @@
 #
 # ~/src/mxe                    <- MXE git with Qt5, automake (see above)
 #      /grantlee               <- Grantlee 5.0.0 sources from git
-#      /libssh2                <- from git - v1.6 seems to work
-#      /libcurl                <- from git - 7.42.1 seems to work - rename folder!
 #      /subsurface             <- current subsurface git
-#      /libdivecomputer        <- appropriate libdc/Subsurface-branch branch
 #      /libgit2                <- libgit2 0.23.1 or similar
+#      /googlemaps             <- Google Maps plugin for QtLocation from git
 #
 # ~/src/win32                  <- build directory
 #
@@ -111,6 +107,7 @@ export CXXFLAGS=-std=c++11
 
 if [[ "$1" == "debug" ]] ; then
 	RELEASE="Debug"
+	RELEASE_MAIN="Debug"
 	DLL_SUFFIX="d"
 	shift
 	if [[ -f Release ]] ; then
@@ -119,6 +116,7 @@ if [[ "$1" == "debug" ]] ; then
 	touch Debug
 else
 	RELEASE="Release"
+	RELEASE_MAIN="RelWithDebInfo"
 	DLL_SUFFIX=""
 	if [[ -f Debug ]] ; then
 		rm -rf *
@@ -133,7 +131,7 @@ if [[ ! -d grantlee || -f build.grantlee ]] ; then
 	rm -f build.grantlee
 	mkdir -p grantlee
 	cd grantlee
-	i686-w64-mingw32.shared-cmake -DCMAKE_TOOLCHAIN_FILE="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/share/cmake/mxe-conf.cmake \
+	i686-w64-mingw32.shared-cmake \
 		-DCMAKE_BUILD_TYPE=$RELEASE \
 		-DBUILD_TESTS=OFF \
 		"$BASEDIR"/grantlee
@@ -142,61 +140,6 @@ if [[ ! -d grantlee || -f build.grantlee ]] ; then
 	make install
 fi
 
-
-# libssh2:
-
-cd "$BUILDDIR"
-if [[ ! -d libssh2 || -f build.libssh2 ]] ; then
-	rm -f build.libssh2
-	mkdir -p libssh2
-	cd libssh2
-
-	i686-w64-mingw32.shared-cmake -DCMAKE_TOOLCHAIN_FILE="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/share/cmake/mxe-conf.cmake \
-		-DCMAKE_BUILD_TYPE=$RELEASE \
-		-DBUILD_EXAMPLES=OFF \
-		-DBUILD_TESTING=OFF \
-		-DBUILD_SHARED_LIBS=ON \
-		"$BASEDIR"/libssh2
-	make $JOBS
-	make install
-	# don't install your dlls in bin, please
-	cp "$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/bin/libssh2.dll "$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/lib
-fi
-
-
-# libcurl
-
-cd "$BUILDDIR"
-if [[ ! -d libcurl || -f build.libcurl ]] ; then
-	rm -f build.libcurl
-	mkdir -p libcurl
-	cd libcurl
-	../../libcurl/configure --host=i686-w64-mingw32.shared \
-		--prefix="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/ \
-		--disable-ftp \
-		--disable-ldap \
-		--disable-ldaps \
-		--disable-rtsp \
-		--enable-proxy \
-		--enable-dict \
-		--disable-telnet \
-		--disable-tftp \
-		--disable-pop3 \
-		--disable-imap \
-		--disable-smb \
-		--disable-smtp \
-		--disable-gopher \
-		--disable-manual \
-		--with-libssh2="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/
-
-	# now remove building the executable
-	sed -i 's/SUBDIRS = lib src include/SUBDIRS = lib include/' Makefile
-
-	make $JOBS
-	make install
-fi
-
-
 # libgit2:
 
 cd "$BUILDDIR"
@@ -204,7 +147,7 @@ if [[ ! -d libgit2 || -f build.libgit2 ]] ; then
 	rm -f build.libgit2
 	mkdir -p libgit2
 	cd libgit2
-	i686-w64-mingw32.shared-cmake -DCMAKE_TOOLCHAIN_FILE="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/share/cmake/mxe-conf.cmake \
+	i686-w64-mingw32.shared-cmake \
 		-DBUILD_CLAR=OFF -DTHREADSAFE=ON \
 		-DCMAKE_BUILD_TYPE=$RELEASE \
 		-DDLLTOOL="$BASEDIR"/"$MXEDIR"/usr/bin/i686-w64-mingw32.shared-dlltool \
@@ -214,22 +157,28 @@ if [[ ! -d libgit2 || -f build.libgit2 ]] ; then
 fi
 
 # libdivecomputer
-#
-# this one is special because we want to make sure it's in sync
-# with the Linux builds, but we don't want the autoconf files cluttering
-# the original source directory... so the "$BASEDIR"/libdivecomputer is
-# a local clone of the "real" libdivecomputer directory
+# ensure the git submodule is present and the autotools are set up
+
+cd "$BASEDIR"/subsurface
+if [ ! -d libdivecomputer/src ] ; then
+	git submodule init
+	git submodule update --recursive
+fi
+if [ ! -f libdivecomputer/configure ] ; then
+	cd libdivecomputer
+	autoreconf --install
+	autoreconf --install
+fi
 
 cd "$BUILDDIR"
 if [[ ! -d libdivecomputer || -f build.libdivecomputer ]] ; then
 	rm -f build.libdivecomputer
-	cd "$BASEDIR"/libdivecomputer
-	git pull
-	cd "$BUILDDIR"
 	mkdir -p libdivecomputer
 	cd libdivecomputer
 
-	"$BASEDIR"/libdivecomputer/configure --host=i686-w64-mingw32.shared \
+	"$BASEDIR"/subsurface/libdivecomputer/configure \
+		CC=i686-w64-mingw32.shared-gcc \
+		--host=i686-w64-mingw32.shared \
 		--enable-shared \
 		--prefix="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared
 	make $JOBS
@@ -324,14 +273,14 @@ done
 
 cd "$BUILDDIR"/subsurface
 
-i686-w64-mingw32.shared-cmake -DCMAKE_TOOLCHAIN_FILE="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/share/cmake/mxe-conf.cmake \
+i686-w64-mingw32.shared-cmake \
 	-DCMAKE_PREFIX_PATH="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/qt5 \
-	-DCMAKE_BUILD_TYPE=$RELEASE \
+	-DCMAKE_BUILD_TYPE=$RELEASE_MAIN \
 	-DQT_TRANSLATION_DIR="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/qt5/translations \
 	-DMAKENSIS=i686-w64-mingw32.shared-makensis \
 	-DLIBDIVECOMPUTER_INCLUDE_DIR="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/include \
 	-DLIBDIVECOMPUTER_LIBRARIES="$BASEDIR"/"$MXEDIR"/usr/i686-w64-mingw32.shared/lib/libdivecomputer.dll.a \
-	-DNO_MARBLE=ON -DMAKE_TESTS=OFF \
+	-DMAKE_TESTS=OFF \
 	"$BASEDIR"/subsurface
 
 make $JOBS "$@"

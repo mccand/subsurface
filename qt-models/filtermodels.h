@@ -5,17 +5,24 @@
 #include <QStringListModel>
 #include <QSortFilterProxyModel>
 #include <stdint.h>
+#include <vector>
 
 class MultiFilterInterface {
 public:
-	MultiFilterInterface() : checkState(NULL), anyChecked(false) {}
+	MultiFilterInterface() : anyChecked(false) {}
 	virtual bool doFilter(struct dive *d, QModelIndex &index0, QAbstractItemModel *sourceModel) const = 0;
 	virtual void clearFilter() = 0;
-	bool *checkState;
+	std::vector<char> checkState;
 	bool anyChecked;
 };
 
-class TagFilterModel : public QStringListModel, public MultiFilterInterface {
+class FilterModelBase : public QStringListModel, public MultiFilterInterface {
+protected:
+	explicit FilterModelBase(QObject *parent = 0);
+	void updateList(const QStringList &new_list);
+};
+
+class TagFilterModel : public FilterModelBase {
 	Q_OBJECT
 public:
 	static TagFilterModel *instance();
@@ -32,7 +39,7 @@ private:
 	explicit TagFilterModel(QObject *parent = 0);
 };
 
-class BuddyFilterModel : public QStringListModel, public MultiFilterInterface {
+class BuddyFilterModel : public FilterModelBase {
 	Q_OBJECT
 public:
 	static BuddyFilterModel *instance();
@@ -49,7 +56,7 @@ private:
 	explicit BuddyFilterModel(QObject *parent = 0);
 };
 
-class LocationFilterModel : public QStringListModel, public MultiFilterInterface {
+class LocationFilterModel : public FilterModelBase {
 	Q_OBJECT
 public:
 	static LocationFilterModel *instance();
@@ -61,12 +68,14 @@ public:
 public
 slots:
 	void repopulate();
+	void changeName(const QString &oldName, const QString &newName);
+	void addName(const QString &newName);
 
 private:
 	explicit LocationFilterModel(QObject *parent = 0);
 };
 
-class SuitsFilterModel : public QStringListModel, public MultiFilterInterface {
+class SuitsFilterModel : public FilterModelBase {
 	Q_OBJECT
 public:
 	static SuitsFilterModel *instance();

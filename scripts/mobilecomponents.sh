@@ -32,12 +32,12 @@ if [ "$NOPULL" = "" ] ; then
 	pushd kirigami
 	git checkout master
 	git pull origin master
-	# let's go back to building against master
-	# git checkout v2.1.0
+	# if we want to pin a specific Kirigami version, we can do this here
+	git checkout 2f5b6fc2a2fa9fb6578a6a709d2d7c51582f2e29
 	popd
 fi
 if [ ! -d breeze-icons ] ; then
-	git clone git://anongit.kde.org/breeze-icons
+	git clone https://github.com/kde/breeze-icons
 fi
 if [ "$NOPULL" = "" ] ; then
 	pushd breeze-icons
@@ -68,11 +68,14 @@ cp $BREEZE/icons/actions/24/trash-empty.svg $MC/icons
 cp $BREEZE/icons/actions/24/list-add.svg $MC/icons
 cp $BREEZE/icons/actions/22/handle-left.svg $MC/icons
 cp $BREEZE/icons/actions/22/handle-right.svg $MC/icons
+cp $BREEZE/icons/actions/22/overflow-menu.svg $MC/icons
 
 # kirigami now needs the breeze-icons internally as well
 pushd $MC
 ln -s $SRC/$BREEZE .
 sed -i -e "s/visible: root.action/visible: root.action \&\& \!Qt.inputMethod.visible/g" src/controls/private/ActionButton.qml
+sed -i -e "s/visible: root.leftAction/visible: root.leftAction \&\& \!Qt.inputMethod.visible/g" src/controls/private/ActionButton.qml
+sed -i -e "s/visible: root.rightAction/visible: root.rightAction \&\& \!Qt.inputMethod.visible/g" src/controls/private/ActionButton.qml
 popd
 
 echo org.kde.plasma.kirigami synced from upstream

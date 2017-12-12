@@ -9,6 +9,8 @@
 
 #ifdef __cplusplus
 extern "C" {
+#else
+#include <stdbool.h>
 #endif
 
 #define O2_IN_AIR 209 // permille
@@ -42,8 +44,11 @@ extern "C" {
  * We also strive to make '0' a meaningless number saying "not
  * initialized", since many values are things that may not have
  * been reported (eg cylinder pressure or temperature from dive
- * computers that don't support them). But sometimes -1 is an even
- * more explicit way of saying "not there".
+ * computers that don't support them). But for some of the values
+ * 0 doesn't works as a flag for not initialized. Examples are
+ * compass bearing (bearing_t) or NDL (duration_t).
+ * Therefore some types have a default value which is -1 and has to
+ * be set at certain points in the code.
  *
  * Thus "millibar" for pressure, for example, or "millikelvin" for
  * temperatures. Doing temperatures in celsius or fahrenheit would
@@ -70,7 +75,7 @@ typedef int64_t timestamp_t;
 
 typedef struct
 {
-	uint32_t seconds; // durations up to 68 yrs
+	int32_t seconds; // durations up to 34 yrs
 } duration_t;
 
 typedef struct
@@ -229,7 +234,7 @@ static inline int mbar_to_PSI(int mbar)
 #undef PASCAL
 #endif
 struct units {
-	enum LENGHT {
+	enum LENGTH {
 		METERS,
 		FEET
 	} length;
@@ -260,6 +265,7 @@ struct units {
 		MINUTES_ONLY,
 		ALWAYS_HOURS
 	} duration_units;
+	bool show_units_table;
 };
 
 /*
@@ -272,13 +278,13 @@ struct units {
 #define SI_UNITS                                                                                           \
         {                                                                                                  \
 	        .length = METERS, .volume = LITER, .pressure = BAR, .temperature = CELSIUS, .weight = KG,  \
-		.vertical_speed_time = MINUTES, .duration_units = MIXED                                    \
+		.vertical_speed_time = MINUTES, .duration_units = MIXED, .show_units_table = false              \
         }
 
 #define IMPERIAL_UNITS                                                                                     \
         {                                                                                                  \
 	        .length = FEET, .volume = CUFT, .pressure = PSI, .temperature = FAHRENHEIT, .weight = LBS, \
-		.vertical_speed_time = MINUTES, .duration_units = MIXED                                    \
+		.vertical_speed_time = MINUTES, .duration_units = MIXED, .show_units_table = false              \
         }
 
 #ifdef __cplusplus

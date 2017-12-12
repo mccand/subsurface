@@ -37,6 +37,21 @@ static inline int same_string_caseinsensitive(const char *a, const char *b)
 	return !strcasecmp(a ?: "", b ?: "");
 }
 
+static inline int includes_string_caseinsensitive(const char *haystack, const char *needle)
+{
+	if (!needle)
+		return 1; /* every string includes the NULL string */
+	if (!haystack)
+		return 0; /* nothing is included in the NULL string */
+	int len = strlen(needle);
+	while (*haystack) {
+		if (strncasecmp(haystack, needle, len))
+			return 1;
+		haystack++;
+	}
+	return 0;
+}
+
 static inline char *copy_string(const char *s)
 {
 	return (s && *s) ? strdup(s) : NULL;
@@ -184,28 +199,28 @@ void get_gas_string(const struct gasmix *gasmix, char *text, int len);
 const char *gasname(const struct gasmix *gasmix);
 
 #define MAX_SENSORS 2
-struct sample                         // BASE TYPE BYTES  UNITS    RANGE      DESCRIPTION
-{                                     // --------- -----  -----    -----      -----------
-	duration_t time;               // uint32_t   4  seconds  (0-68 yrs)   elapsed dive time up to this sample
-	duration_t stoptime;           // uint32_t   4  seconds  (0-18 h)     time duration of next deco stop
-	duration_t ndl;                // uint32_t   4  seconds  (0-18 h)     time duration before no-deco limit
-	duration_t tts;                // uint32_t   4  seconds  (0-18 h)     time duration to reach the surface
-	duration_t rbt;                // uint32_t   4  seconds  (0-18 h)     remaining bottom time
-	depth_t depth;                 // int32_t    4    mm     (0-2000 km)  dive depth of this sample
-	depth_t stopdepth;             // int32_t    4    mm     (0-2000 km)  depth of next deco stop
-	temperature_t temperature;     // int32_t    4  mdegrK   (0-2 MdegK)  ambient temperature
-	pressure_t pressure[MAX_SENSORS]; // int32_t    4    mbar   (0-2 Mbar)   cylinder pressures (main and CCR o2)
-	o2pressure_t setpoint;         // uint16_t   2    mbar   (0-65 bar)   O2 partial pressure (will be setpoint)
-	o2pressure_t o2sensor[3];      // uint16_t   6    mbar   (0-65 bar)   Up to 3 PO2 sensor values (rebreather)
-	bearing_t bearing;             // int16_t    2  degrees  (-32k to 32k deg) compass bearing
-	uint8_t sensor[MAX_SENSORS];   // uint8_t    1  sensorID (0-255)      ID of cylinder pressure sensor
-	uint8_t cns;                   // uint8_t    1     %     (0-255 %)    cns% accumulated
-	uint8_t heartbeat;             // uint8_t    1  beats/m  (0-255)      heart rate measurement
-	volume_t sac;                  //            4  ml/min                predefined SAC
-	bool in_deco;                  // bool       1    y/n      y/n        this sample is part of deco
-	bool manually_entered;         // bool       1    y/n      y/n        this sample was entered by the user,
-				       //                                     not calculated when planning a dive
-};                      // Total size of structure: 57 bytes, excluding padding at end
+struct sample                         // BASE TYPE BYTES  UNITS    RANGE               DESCRIPTION
+{                                     // --------- -----  -----    -----               -----------
+	duration_t time;                  // int32_t    4  seconds  (0-34 yrs)             elapsed dive time up to this sample
+	duration_t stoptime;              // int32_t    4  seconds  (0-34 yrs)             time duration of next deco stop
+	duration_t ndl;                   // int32_t    4  seconds  (-1 no val, 0-34 yrs)  time duration before no-deco limit
+	duration_t tts;                   // int32_t    4  seconds  (0-34 yrs)             time duration to reach the surface
+	duration_t rbt;                   // int32_t    4  seconds  (0-34 yrs)             remaining bottom time
+	depth_t depth;                    // int32_t    4    mm     (0-2000 km)            dive depth of this sample
+	depth_t stopdepth;                // int32_t    4    mm     (0-2000 km)            depth of next deco stop
+	temperature_t temperature;        // int32_t    4  mdegrK   (0-2 MdegK)            ambient temperature
+	pressure_t pressure[MAX_SENSORS]; // int32_t    4    mbar   (0-2 Mbar)             cylinder pressures (main and CCR o2)
+	o2pressure_t setpoint;            // uint16_t   2    mbar   (0-65 bar)             O2 partial pressure (will be setpoint)
+	o2pressure_t o2sensor[3];         // uint16_t   6    mbar   (0-65 bar)             Up to 3 PO2 sensor values (rebreather)
+	bearing_t bearing;                // int16_t    2  degrees  (-1 no val, 0-360 deg) compass bearing
+	uint8_t sensor[MAX_SENSORS];      // uint8_t    1  sensorID (0-255)                ID of cylinder pressure sensor
+	uint16_t cns;                     // uint16_t   1     %     (0-64k %)              cns% accumulated
+	uint8_t heartbeat;                // uint8_t    1  beats/m  (0-255)                heart rate measurement
+	volume_t sac;                     //            4  ml/min                          predefined SAC
+	bool in_deco;                     // bool       1    y/n      y/n                  this sample is part of deco
+	bool manually_entered;            // bool       1    y/n      y/n                  this sample was entered by the user,
+	                                  //                                               not calculated when planning a dive
+};	                                  // Total size of structure: 57 bytes, excluding padding at end
 
 struct divetag {
 	/*
@@ -367,7 +382,8 @@ static inline bool dive_cache_is_valid(const struct dive *dive)
 }
 
 extern int get_cylinder_idx_by_use(struct dive *dive, enum cylinderuse cylinder_use_type);
-extern void dc_cylinder_renumber(struct dive *dive, struct divecomputer *dc, int mapping[]);
+extern void cylinder_renumber(struct dive *dive, int mapping[]);
+extern int same_gasmix_cylinder(cylinder_t *cyl, int cylid, struct dive *dive, bool check_unused);
 
 /* when selectively copying dive information, which parts should be copied? */
 struct dive_components {
@@ -413,6 +429,7 @@ extern timestamp_t picture_get_timestamp(const char *filename);
 extern void dive_set_geodata_from_picture(struct dive *d, struct picture *pic);
 extern void picture_free(struct picture *picture);
 
+extern bool has_gaschange_event(struct dive *dive, struct divecomputer *dc, int idx);
 extern int explicit_first_cylinder(struct dive *dive, struct divecomputer *dc);
 extern int get_depth_at_time(struct divecomputer *dc, unsigned int time);
 
@@ -508,10 +525,6 @@ static inline depth_t gas_mnd(struct gasmix *mix, depth_t end, struct dive *dive
 
 #define SURFACE_THRESHOLD 750 /* somewhat arbitrary: only below 75cm is it really diving */
 
-/* this is a global spot for a temporary dive structure that we use to
- * be able to edit a dive without unintended side effects */
-extern struct dive edit_dive;
-
 extern short autogroup;
 /* random threashold: three days without diving -> new trip
  * this works very well for people who usually dive as part of a trip and don't
@@ -548,6 +561,7 @@ extern int selected_dive;
 extern unsigned int dc_number;
 #define current_dive (get_dive(selected_dive))
 #define current_dc (get_dive_dc(current_dive, dc_number))
+#define displayed_dc (get_dive_dc(&displayed_dive, dc_number))
 
 static inline struct dive *get_dive(int nr)
 {
@@ -567,6 +581,17 @@ static inline struct dive_site *get_dive_site_for_dive(struct dive *dive)
 {
 	if (dive)
 		return get_dive_site_by_uuid(dive->dive_site_uuid);
+	return NULL;
+}
+
+static inline const char *get_dive_country(struct dive *dive)
+{
+	struct dive_site *ds = get_dive_site_by_uuid(dive->dive_site_uuid);
+	if (ds) {
+		int idx = taxonomy_index_for_category(&ds->taxonomy, TC_COUNTRY);
+		if (idx >= 0)
+			return ds->taxonomy.category[idx].value;
+	}
 	return NULL;
 }
 
@@ -595,7 +620,10 @@ static inline unsigned int number_of_computers(struct dive *dive)
 
 static inline struct divecomputer *get_dive_dc(struct dive *dive, int nr)
 {
-	struct divecomputer *dc = &dive->dc;
+	struct divecomputer *dc;
+	if (!dive)
+		return NULL;
+	dc = &dive->dc;
 
 	while (nr-- > 0) {
 		dc = dc->next;
@@ -682,6 +710,7 @@ extern "C" {
 extern int report_error(const char *fmt, ...);
 extern void report_message(const char *msg);
 extern const char *get_error_string(void);
+extern void set_error_cb(void(*cb)(void));
 
 extern struct dive *find_dive_including(timestamp_t when);
 extern bool dive_within_time_range(struct dive *dive, timestamp_t when, timestamp_t offset);
@@ -694,7 +723,7 @@ extern int match_one_dc(struct divecomputer *a, struct divecomputer *b);
 extern void parse_xml_init(void);
 extern int parse_xml_buffer(const char *url, const char *buf, int size, struct dive_table *table, const char **params);
 extern void parse_xml_exit(void);
-extern void set_filename(const char *filename, bool force);
+extern void set_filename(const char *filename);
 
 extern int parse_dm4_buffer(sqlite3 *handle, const char *url, const char *buf, int size, struct dive_table *table);
 extern int parse_dm5_buffer(sqlite3 *handle, const char *url, const char *buf, int size, struct dive_table *table);
@@ -735,7 +764,7 @@ extern int subsurface_access(const char *path, int mode);
 extern int subsurface_stat(const char* path, struct stat* buf);
 extern struct zip *subsurface_zip_open_readonly(const char *path, int flags, int *errorp);
 extern int subsurface_zip_close(struct zip *zip);
-extern void subsurface_console_init(bool dedicated, bool logfile);
+extern void subsurface_console_init(void);
 extern void subsurface_console_exit(void);
 extern bool subsurface_user_is_root(void);
 
@@ -835,6 +864,8 @@ extern void subsurface_command_line_exit(int *, char ***);
 
 #define FRACTION(n, x) ((unsigned)(n) / (x)), ((unsigned)(n) % (x))
 
+#define DECOTIMESTEP 60 /* seconds. Unit of deco stop times */
+
 struct deco_state {
 	double tissue_n2_sat[16];
 	double tissue_he_sat[16];
@@ -856,22 +887,24 @@ struct deco_state {
 
 	double initial_n2_gradient[16];
 	double initial_he_gradient[16];
+	pressure_t first_ceiling_pressure;
+	pressure_t max_bottom_ceiling_pressure;
 	int ci_pointing_to_guiding_tissue;
 	double gf_low_pressure_this_dive;
-
+	int deco_time;
 };
 
-extern void add_segment(double pressure, const struct gasmix *gasmix, int period_in_seconds, int setpoint, const struct dive *dive, int sac);
-extern void clear_deco(double surface_pressure);
-extern void dump_tissues(void);
-extern void set_gf(short gflow, short gfhigh, bool gf_low_at_maxdepth);
+extern void add_segment(struct deco_state *ds, double pressure, const struct gasmix *gasmix, int period_in_seconds, int setpoint, const struct dive *dive, int sac);
+extern void clear_deco(struct deco_state *ds, double surface_pressure);
+extern void dump_tissues(struct deco_state *ds);
+extern void set_gf(short gflow, short gfhigh);
 extern void set_vpmb_conservatism(short conservatism);
-extern void cache_deco_state(struct deco_state **datap);
-extern void restore_deco_state(struct deco_state *data, bool keep_vpmb_state);
-extern void nuclear_regeneration(double time);
-extern void vpmb_start_gradient();
-extern void vpmb_next_gradient(double deco_time, double surface_pressure);
-extern double tissue_tolerance_calc(const struct dive *dive, double pressure);
+extern void cache_deco_state(struct deco_state *source, struct deco_state **datap);
+extern void restore_deco_state(struct deco_state *data, struct deco_state *target, bool keep_vpmb_state);
+extern void nuclear_regeneration(struct deco_state *ds, double time);
+extern void vpmb_start_gradient(struct deco_state *ds);
+extern void vpmb_next_gradient(struct deco_state *ds, double deco_time, double surface_pressure);
+extern double tissue_tolerance_calc(struct deco_state *ds, const struct dive *dive, double pressure);
 
 /* this should be converted to use our types */
 struct divedatapoint {
@@ -895,7 +928,7 @@ struct diveplan {
 	short vpmb_conservatism;
 	struct divedatapoint *dp;
 	int eff_gflow, eff_gfhigh;
-	unsigned int surface_interval;
+	int surface_interval;
 };
 
 struct divedatapoint *plan_add_segment(struct diveplan *diveplan, int duration, int depth, int cylinderid, int po2, bool entered);
@@ -903,10 +936,15 @@ struct divedatapoint *create_dp(int time_incr, int depth, int cylinderid, int po
 #if DEBUG_PLAN
 void dump_plan(struct diveplan *diveplan);
 #endif
-bool plan(struct diveplan *diveplan, struct deco_state **cached_datap, bool is_planner, bool show_disclaimer);
-void calc_crushing_pressure(double pressure);
-void vpmb_start_gradient();
+struct decostop {
+	int depth;
+	int time;
+};
+bool plan(struct deco_state *ds, struct diveplan *diveplan, struct dive *dive, int timestep, struct decostop *decostoptable, struct deco_state **cached_datap, bool is_planner, bool show_disclaimer);
+void calc_crushing_pressure(struct deco_state *ds, double pressure);
+void vpmb_start_gradient(struct deco_state *ds);
 void clear_vpmb_state();
+void printdecotable(struct decostop *table);
 
 void delete_single_dive(int idx);
 
@@ -919,7 +957,7 @@ static inline struct gasmix *get_gasmix(struct dive *dive, struct divecomputer *
 	if (!gasmix) {
 		int cyl = explicit_first_cylinder(dive, dc);
 		gasmix = &dive->cylinder[cyl].gasmix;
-		ev = dc->events;
+		ev = dc ? dc->events : NULL;
 	}
 	while (ev && ev->time.seconds < time) {
 		gasmix = get_gasmix_from_event(dive, ev);
@@ -928,7 +966,6 @@ static inline struct gasmix *get_gasmix(struct dive *dive, struct divecomputer *
 	*evp = ev;
 	return gasmix;
 }
-
 
 /* these structs holds the information that
  * describes the cylinders / weight systems.
@@ -957,6 +994,9 @@ extern bool weightsystems_equal(weightsystem_t *ws1, weightsystem_t *ws2);
 extern void remove_cylinder(struct dive *dive, int idx);
 extern void remove_weightsystem(struct dive *dive, int idx);
 extern void reset_cylinders(struct dive *dive, bool track_gas);
+#ifdef DEBUG_CYL
+extern void dump_cylinders(struct dive *dive, bool verbose);
+#endif
 
 /*
  * String handling.
@@ -971,7 +1011,6 @@ extern double strtod_flags(const char *str, const char **ptr, unsigned int flags
 
 #define ascii_strtod(str, ptr) strtod_flags(str, ptr, STRTOD_ASCII)
 
-extern void set_save_userid_local(short value);
 extern void set_userid(char *user_id);
 extern void set_informational_units(char *units);
 extern void set_git_prefs(char *prefs);

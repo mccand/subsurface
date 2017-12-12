@@ -60,11 +60,11 @@ signals:
 	void addDiveFinished();
 	void dateTimeChanged();
 	void diveSiteChanged(struct dive_site * ds);
+	void diveSiteAdded(const QString &);
 public
 slots:
 	void addCylinder_clicked();
 	void addWeight_clicked();
-	void refreshDiveInfo();
 	void updateDiveInfo(bool clear = false);
 	void updateDepthDuration();
 	void acceptChanges();
@@ -115,6 +115,9 @@ private:
 	Completers completers;
 	bool modified;
 	bool copyPaste;
+	bool lastSelectedDive;
+	int lastTabSelectedDive;
+	int lastTabSelectedDiveTrip;
 	void resetPallete();
 	void saveTags();
 	void saveTaggedStrings();

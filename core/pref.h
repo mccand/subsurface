@@ -4,17 +4,18 @@
 
 #ifdef __cplusplus
 extern "C" {
+#else
+#include <stdbool.h>
 #endif
 
 #include "units.h"
 #include "taxonomy.h"
 
-/* can't use 'bool' for the boolean values - different size in C and C++ */
 typedef struct
 {
-	short po2;
-	short pn2;
-	short phe;
+	bool po2;
+	bool pn2;
+	bool phe;
 	double po2_threshold_min;
 	double po2_threshold_max;
 	double pn2_threshold;
@@ -22,15 +23,12 @@ typedef struct
 } partial_pressure_graphs_t;
 
 typedef struct {
-	char *access_token;
-	char *user_id;
-	char *album_id;
+	const char *access_token;
+	const char *user_id;
+	const char *album_id;
 } facebook_prefs_t;
 
 typedef struct {
-	bool enable_geocoding;
-	bool parse_dive_without_gps;
-	bool tag_existing_dives;
 	enum taxonomy_category category[3];
 } geocoding_prefs_t;
 
@@ -49,14 +47,15 @@ enum deco_mode {
 typedef struct {
 	bool dont_check_for_updates;
 	bool dont_check_exists;
-	char *last_version_used;
-	char *next_check;
+	const char *last_version_used;
+	const char *next_check;
 } update_manager_prefs_t;
 
 typedef struct {
-	char *vendor;
-	char *product;
-	char *device;
+	const char *vendor;
+	const char *product;
+	const char *device;
+	const char *device_name;
 	int download_mode;
 } dive_computer_prefs_t;
 
@@ -73,35 +72,35 @@ struct preferences {
 	bool date_format_override;
 	double font_size;
 	partial_pressure_graphs_t pp_graphs;
-	short mod;
+	bool mod;
 	double modpO2;
-	short ead;
-	short dcceiling;
-	short redceiling;
-	short calcceiling;
-	short calcceiling3m;
-	short calcalltissues;
-	short calcndltts;
+	bool ead;
+	bool dcceiling;
+	bool redceiling;
+	bool calcceiling;
+	bool calcceiling3m;
+	bool calcalltissues;
+	bool calcndltts;
 	short gflow;
 	short gfhigh;
 	int animation_speed;
 	bool gf_low_at_maxdepth;
 	bool show_ccr_setpoint;
 	bool show_ccr_sensors;
-	short display_invalid_dives;
+	bool display_invalid_dives;
 	short unit_system;
 	struct units units;
 	bool coordinates_traditional;
-	short show_sac;
-	short display_unused_tanks;
-	short show_average_depth;
-	short zoomed_plot;
-	short hrgraph;
-	short percentagegraph;
-	short rulergraph;
-	short tankbar;
-	short save_userid_local;
-	char *userid;
+	bool show_sac;
+	bool display_unused_tanks;
+	bool show_average_depth;
+	bool zoomed_plot;
+	bool hrgraph;
+	bool percentagegraph;
+	bool rulergraph;
+	bool tankbar;
+	bool save_userid_local;
+	const char *userid;
 	int ascrate75; // All rates in mm / sec
 	int ascrate50;
 	int ascratestops;
@@ -114,11 +113,11 @@ struct preferences {
 	enum deco_mode display_deco_mode;
 	depth_t bestmixend;
 	int proxy_type;
-	char *proxy_host;
+	const char *proxy_host;
 	int proxy_port;
-	short proxy_auth;
-	char *proxy_user;
-	char *proxy_pass;
+	bool proxy_auth;
+	const char *proxy_user;
+	const char *proxy_pass;
 	bool doo2breaks;
 	bool drop_stone_mode;
 	bool last_stop;   // At 6m?
@@ -126,6 +125,7 @@ struct preferences {
 	bool display_runtime;
 	bool display_duration;
 	bool display_transitions;
+	bool display_variations;
 	bool safetystop;
 	bool switch_at_req_stop;
 	int reserve_gas;
@@ -139,10 +139,10 @@ struct preferences {
 	bool use_default_file;
 	short default_file_behavior;
 	facebook_prefs_t facebook;
-	char *cloud_storage_password;
-	char *cloud_storage_newpassword;
-	char *cloud_storage_email;
-	char *cloud_storage_email_encoded;
+	const char *cloud_storage_password;
+	const char *cloud_storage_newpassword;
+	const char *cloud_storage_email;
+	const char *cloud_storage_email_encoded;
 	bool save_password_local;
 	short cloud_verification_status;
 	bool cloud_background_sync;
@@ -174,7 +174,8 @@ enum cloud_status {
 	CS_UNKNOWN,
 	CS_INCORRECT_USER_PASSWD,
 	CS_NEED_TO_VERIFY,
-	CS_VERIFIED
+	CS_VERIFIED,
+	CS_NOCLOUD
 };
 
 extern struct preferences prefs, default_prefs, git_prefs;
@@ -188,6 +189,7 @@ extern const char *system_default_directory(void);
 extern const char *system_default_filename();
 extern bool subsurface_ignore_font(const char *font);
 extern void subsurface_OS_pref_setup();
+extern void copy_prefs(struct preferences *src, struct preferences *dest);
 
 #ifdef __cplusplus
 }

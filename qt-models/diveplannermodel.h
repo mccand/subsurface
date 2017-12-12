@@ -31,7 +31,8 @@ public:
 	virtual QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const;
 	virtual bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole);
 	virtual Qt::ItemFlags flags(const QModelIndex &index) const;
-	void gaschange(const QModelIndex &index, int newcylinderid);
+	void gasChange(const QModelIndex &index, int newcylinderid);
+	void cylinderRenumber(int mapping[]);
 	void removeSelectedPoints(const QVector<int> &rows);
 	void setPlanMode(Mode mode);
 	bool isPlanner();
@@ -55,6 +56,7 @@ public:
 	int lastEnteredPoint();
 	void removeDeco();
 	static bool addingDeco;
+	struct deco_state final_deco_state;
 
 public
 slots:
@@ -78,6 +80,7 @@ slots:
 	void setDisplayRuntime(bool value);
 	void setDisplayDuration(bool value);
 	void setDisplayTransitions(bool value);
+	void setDisplayVariations(bool value);
 	void setDecoMode(int mode);
 	void setSafetyStop(bool value);
 	void savePlan();
@@ -94,6 +97,11 @@ slots:
 	void setMinSwitchDuration(int duration);
 	void setSacFactor(double factor);
 	void setProblemSolvingTime(int minutes);
+	void setAscrate75(int rate);
+	void setAscrate50(int rate);
+	void setAscratestops(int rate);
+	void setAscratelast6m(int rate);
+	void setDescrate(int rate);
 
 signals:
 	void planCreated();
@@ -102,17 +110,23 @@ signals:
 	void startTimeChanged(QDateTime);
 	void recreationChanged(bool);
 	void calculatedPlanNotes();
+	void variationsComputed(QString);
 
 private:
 	explicit DivePlannerPointsModel(QObject *parent = 0);
 	void createPlan(bool replanCopy);
 	struct diveplan diveplan;
+	struct divedatapoint *cloneDiveplan(struct diveplan *plan_src, struct diveplan *plan_copy);
+	void computeVariations(struct diveplan *diveplan, struct deco_state *ds);
+	int analyzeVariations(struct decostop *min, struct decostop *mid, struct decostop *max, const char *unit);
 	Mode mode;
 	bool recalc;
 	QVector<divedatapoint> divepoints;
 	QDateTime startTime;
 	int tempGFHigh;
 	int tempGFLow;
+	int instanceCounter = 0;
+	struct deco_state ds_after_previous_dives;
 };
 
 #endif

@@ -4,7 +4,9 @@
 #include "core/metrics.h"
 #include "core/divelist.h"
 #include "core/helpers.h"
+#include "core/dive.h"
 #include <QIcon>
+#include <QDebug>
 
 static int nitrox_sort_value(struct dive *dive)
 {
@@ -35,6 +37,7 @@ static QVariant dive_table_alignment(int column)
 	case DiveTripModel::CYLINDER:
 	case DiveTripModel::GAS:
 	case DiveTripModel::PHOTOS:
+	case DiveTripModel::COUNTRY:
 	case DiveTripModel::LOCATION:
 		retVal = int(Qt::AlignLeft | Qt::AlignVCenter);
 		break;
@@ -82,7 +85,7 @@ QVariant TripItem::data(int column, int role) const
 QVariant DiveItem::data(int column, int role) const
 {
 	QVariant retVal;
-	QString icon_names[4] = {":zero",":duringPhoto", ":outsidePhoto", ":inAndOutPhoto" };
+	QString icon_names[4] = {":zero",":photo-in-icon", ":photo-out-icon", ":photo-in-out-icon" };
 	struct dive *dive = get_dive_by_uniq_id(diveId);
 	if (!dive)
 		return QVariant();
@@ -136,6 +139,9 @@ QVariant DiveItem::data(int column, int role) const
 		case PHOTOS:
 			retVal = countPhotos(dive);
 			break;
+		case COUNTRY:
+			retVal = QString(get_dive_country(dive));
+			break;
 		case LOCATION:
 			retVal = QString(get_dive_location(dive));
 			break;
@@ -151,16 +157,16 @@ QVariant DiveItem::data(int column, int role) const
 			retVal = displayDate();
 			break;
 		case DEPTH:
-			retVal = displayDepth();
+			retVal = prefs.units.show_units_table ? displayDepthWithUnit() : displayDepth();
 			break;
 		case DURATION:
 			retVal = displayDuration();
 			break;
 		case TEMPERATURE:
-			retVal = displayTemperature();
+			retVal = prefs.units.show_units_table ? retVal = displayTemperatureWithUnit() : displayTemperature();
 			break;
 		case TOTALWEIGHT:
-			retVal = displayWeight();
+			retVal = prefs.units.show_units_table ? retVal = displayWeightWithUnit() : displayWeight();
 			break;
 		case SUIT:
 			retVal = QString(dive->suit);
@@ -169,15 +175,21 @@ QVariant DiveItem::data(int column, int role) const
 			retVal = QString(dive->cylinder[0].type.description);
 			break;
 		case SAC:
-			retVal = displaySac();
+			retVal = prefs.units.show_units_table ? retVal = displaySacWithUnit() : displaySac();
 			break;
 		case OTU:
 			retVal = dive->otu;
 			break;
 		case MAXCNS:
-			retVal = dive->maxcns;
+			if (prefs.units.show_units_table)
+				retVal = QString("%1%").arg(dive->maxcns);
+			else
+				retVal = dive->maxcns;
 			break;
 		case PHOTOS:
+			break;
+		case COUNTRY:
+			retVal = QString(get_dive_country(dive));
 			break;
 		case LOCATION:
 			retVal = QString(get_dive_location(dive));
@@ -191,6 +203,10 @@ QVariant DiveItem::data(int column, int role) const
 		break;
 	case Qt::DecorationRole:
 		switch (column) {
+		//TODO: ADD A FLAG
+		case COUNTRY:
+			retVal = QVariant();
+			break;
 		case LOCATION:
 			if (dive_has_gps_location(dive)) {
 				IconMetrics im = defaultIconMetrics();
@@ -251,6 +267,9 @@ QVariant DiveItem::data(int column, int role) const
 			break;
 		case PHOTOS:
 			retVal = tr("Photos before/during/after dive");
+			break;
+		case COUNTRY:
+			retVal = tr("Country");
 			break;
 		case LOCATION:
 			retVal = tr("Location");
@@ -325,12 +344,12 @@ QString DiveItem::displayDepthWithUnit() const
 int DiveItem::countPhotos(dive *dive) const
 {	// Determine whether dive has pictures, and whether they were taken during or before/after dive.
 	const int bufperiod = 120; // A 2-min buffer period. Photos within 2 min of dive are assumed as
-	int diveDuration = dive->duration.seconds;	// taken during the dive, not before/after.
+	int diveTotaltime = dive_endtime(dive) - dive->when;	// taken during the dive, not before/after.
 	int pic_offset, icon_index = 0;
 	FOR_EACH_PICTURE (dive) {		// Step through each of the pictures for this dive:
 		if (!picture) break;		// if there are no pictures for this dive, return 0
 		pic_offset = picture->offset.seconds;
-		if  ((pic_offset < -bufperiod) | (pic_offset > diveDuration+bufperiod)) {
+		if  ((pic_offset < -bufperiod) | (pic_offset > diveTotaltime+bufperiod)) {
 			icon_index |= 0x02;	// If picture is before/after the dive
 		}				//  then set the appropriate bit ...
 		else {
@@ -343,9 +362,10 @@ int DiveItem::countPhotos(dive *dive) const
 QString DiveItem::displayDuration() const
 {
 	struct dive *dive = get_dive_by_uniq_id(diveId);
-	return get_dive_duration_string(dive->duration.seconds, "", "", "", ":", dive->dc.divemode == FREEDIVE);
-	// Next line is test for alternative display with units
-	// return get_dive_duration_string(dive->duration.seconds, tr("h"), tr("min"), "", ":", dive->dc.divemode == FREEDIVE);
+	if (prefs.units.show_units_table)
+		return get_dive_duration_string(dive->duration.seconds, tr("h"), tr("min"), "", ":", dive->dc.divemode == FREEDIVE);
+	else
+		return get_dive_duration_string(dive->duration.seconds, "", "", "", ":", dive->dc.divemode == FREEDIVE);
 }
 
 QString DiveItem::displayTemperature() const
@@ -354,11 +374,16 @@ QString DiveItem::displayTemperature() const
 	struct dive *dive = get_dive_by_uniq_id(diveId);
 	if (!dive->watertemp.mkelvin)
 		return str;
-	if (get_units()->temperature == units::CELSIUS)
-		str = QString::number(mkelvin_to_C(dive->watertemp.mkelvin), 'f', 1);
-	else
-		str = QString::number(mkelvin_to_F(dive->watertemp.mkelvin), 'f', 1);
-	return str;
+	return get_temperature_string(dive->watertemp, false);
+}
+
+QString DiveItem::displayTemperatureWithUnit() const
+{
+	QString str;
+	struct dive *dive = get_dive_by_uniq_id(diveId);
+	if (!dive->watertemp.mkelvin)
+		return str;
+	return get_temperature_string(dive->watertemp, true);
 }
 
 QString DiveItem::displaySac() const
@@ -374,9 +399,28 @@ QString DiveItem::displaySac() const
 	return QString("");
 }
 
+QString DiveItem::displaySacWithUnit() const
+{
+	QString str;
+	struct dive *dive = get_dive_by_uniq_id(diveId);
+	if (dive->sac) {
+		const char *unit;
+		int decimal;
+		double value = get_volume_units(dive->sac, &decimal, &unit);
+		return QString::number(value, 'f', decimal) + QString(unit).append(tr("/min"));
+	}
+	return QString("");
+}
+
 QString DiveItem::displayWeight() const
 {
 	QString str = weight_string(weight());
+	return str;
+}
+
+QString DiveItem::displayWeightWithUnit() const
+{
+	QString str = weight_string(weight()) + ((get_units()->weight == units::KG) ? tr("kg") : tr("lbs"));
 	return str;
 }
 
@@ -392,6 +436,18 @@ DiveTripModel::DiveTripModel(QObject *parent) :
 	currentLayout(TREE)
 {
 	columns = COLUMNS;
+	// setup the default width of columns (px)
+	columnWidthMap = QVector<int>(COLUMNS);
+	// pre-fill with 50px; the rest are explicit
+	for(int i = 0; i < COLUMNS; i++)
+		columnWidthMap[i] = 50;
+	columnWidthMap[NR] = 70;
+	columnWidthMap[DATE] = 140;
+	columnWidthMap[RATING] = 90;
+	columnWidthMap[SUIT] = 70;
+	columnWidthMap[SAC] = 70;
+	columnWidthMap[PHOTOS] = 5;
+	columnWidthMap[LOCATION] = 500;
 }
 
 Qt::ItemFlags DiveTripModel::flags(const QModelIndex &index) const
@@ -459,6 +515,9 @@ QVariant DiveTripModel::headerData(int section, Qt::Orientation orientation, int
 			break;
 		case PHOTOS:
 			ret = tr("Photos");
+			break;
+		case COUNTRY:
+			ret = tr("Country");
 			break;
 		case LOCATION:
 			ret = tr("Location");
@@ -586,4 +645,22 @@ bool DiveTripModel::setData(const QModelIndex &index, const QVariant &value, int
 	if (!diveItem)
 		return false;
 	return diveItem->setData(index, value, role);
+}
+
+int DiveTripModel::columnWidth(int column)
+{
+	if (column > COLUMNS - 1 || column < 0) {
+		qWarning() << "DiveTripModel::columnWidth(): not a valid column index -" << column;
+		return 50;
+	}
+	return columnWidthMap[column];
+}
+
+void DiveTripModel::setColumnWidth(int column, int width)
+{
+	if (column > COLUMNS - 1 || column < 0) {
+		qWarning() << "DiveTripModel::setColumnWidth(): not a valid column index -" << column;
+		return;
+	}
+	columnWidthMap[column] = width;
 }

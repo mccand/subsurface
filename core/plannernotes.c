@@ -27,7 +27,7 @@ int diveplan_duration(struct diveplan *diveplan)
 			duration = dp->time;
 		dp = dp->next;
 	}
-	return duration / 60;
+	return (duration + 30) / 60;
 }
 
 
@@ -85,7 +85,22 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 
 	len = show_disclaimer ? snprintf(buffer, sz_buffer, "<div><b>%s</b><br></div>", disclaimer) : 0;
 
-	if (diveplan->surface_interval > 60) {
+	if (diveplan->surface_interval < 0) {
+		len += snprintf(buffer + len, sz_buffer - len, "<div><b>%s (%s) %s<br>",
+				translate("gettextFromC", "Subsurface"),
+				subsurface_canonical_version(),
+				translate("gettextFromC", "dive plan</b> (overlapping dives detected)"));
+				dive->notes = strdup(buffer);
+				free((void *)buffer);
+				free((void *)temp);
+				return;
+	} else if (diveplan->surface_interval >= 48 * 60 *60) {
+		len += snprintf(buffer + len, sz_buffer - len, "<div><b>%s (%s) %s %s</b><br>",
+				translate("gettextFromC", "Subsurface"),
+				subsurface_canonical_version(),
+				translate("gettextFromC", "dive plan</b> created on"),
+				get_current_date());
+	} else {
 		len += snprintf(buffer + len, sz_buffer - len, "<div><b>%s (%s) %s %d:%02d) %s %s<br>",
 				translate("gettextFromC", "Subsurface"),
 				subsurface_canonical_version(),
@@ -93,16 +108,15 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 				FRACTION(diveplan->surface_interval / 60, 60),
 				translate("gettextFromC", "created on"),
 				get_current_date());
-	} else {
-		len += snprintf(buffer + len, sz_buffer - len, "<div><b>%s (%s) %s %s</b><br>",
-				translate("gettextFromC", "Subsurface"),
-				subsurface_canonical_version(),
-				translate("gettextFromC", "dive plan</b> created on"),
-				get_current_date());
 	}
 
-	len += snprintf(buffer + len, sz_buffer - len, translate("gettextFromC", "Runtime: %dmin<br></div>"),
-			diveplan_duration(diveplan));
+	if (prefs.display_variations && decoMode() != RECREATIONAL)
+		len += snprintf(buffer + len, sz_buffer - len, translate("gettextFromC", "Runtime: %dmin%s"),
+				diveplan_duration(diveplan), "VARIATIONS<br></div>");
+	else
+		len += snprintf(buffer + len, sz_buffer - len, translate("gettextFromC", "Runtime: %dmin<br></div>"),
+				diveplan_duration(diveplan));
+
 
 	if (!plan_verbatim) {
 		len += snprintf(buffer + len, sz_buffer - len, "<table><thead><tr><th></th><th>%s</th>",
@@ -196,7 +210,7 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 								FRACTION(dp->time, 60),
 								gasname(&gasmix));
 
-						len += snprintf(buffer + len, sz_buffer - len, "%s<br>", temp);
+					len += snprintf(buffer + len, sz_buffer - len, "%s<br>", temp);
 					newdepth = dp->depth.mm;
 					lasttime = dp->time;
 				}
@@ -315,7 +329,7 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 	len += snprintf(buffer + len, sz_buffer - len, "<br>%s: %i<br></div>", temp, dive->otu);
 
 	/* Print the settings for the diveplan next. */
-	if (decoMode() == BUEHLMANN){
+	if (decoMode() == BUEHLMANN) {
 		snprintf(temp, sz_temp, translate("gettextFromC", "Deco model: Bühlmann ZHL-16C with GFLow = %d%% and GFHigh = %d%%"),
 			diveplan->gflow, diveplan->gfhigh);
 	} else if (decoMode() == VPMB){
@@ -363,7 +377,7 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 
 	/* Print gas consumption: This loop covers all cylinders */
 	for (int gasidx = 0; gasidx < MAX_CYLINDERS; gasidx++) {
-		double volume, pressure, deco_volume, deco_pressure, mingas_volume, mingas_pressure, mingas_depth;
+		double volume, pressure, deco_volume, deco_pressure, mingas_volume, mingas_pressure, mingas_d_pressure, mingas_depth;
 		const char *unit, *pressure_unit, *depth_unit;
 		char warning[1000] = "";
 		char mingas[1000] = "";
@@ -375,9 +389,9 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 		deco_volume = get_volume_units(cyl->deco_gas_used.mliter, NULL, &unit);
 		if (cyl->type.size.mliter) {
 			int remaining_gas = lrint((double)cyl->end.mbar * cyl->type.size.mliter / 1000.0 / gas_compressibility_factor(&cyl->gasmix, cyl->end.mbar / 1000.0));
-			double deco_pressure_bar = isothermal_pressure(&cyl->gasmix, 1.0, remaining_gas + cyl->deco_gas_used.mliter, cyl->type.size.mliter)
-					- cyl->end.mbar / 1000.0;
-			deco_pressure = get_pressure_units(lrint(1000.0 * deco_pressure_bar), &pressure_unit);
+			double deco_pressure_mbar = isothermal_pressure(&cyl->gasmix, 1.0, remaining_gas + cyl->deco_gas_used.mliter, cyl->type.size.mliter) * 1000
+					- cyl->end.mbar;
+			deco_pressure = get_pressure_units(lrint(deco_pressure_mbar), &pressure_unit);
 			pressure = get_pressure_units(cyl->start.mbar - cyl->end.mbar, &pressure_unit);
 			/* Warn if the plan uses more gas than is available in a cylinder
 			 * This only works if we have working pressure for the cylinder
@@ -409,24 +423,43 @@ void add_plan_to_notes(struct diveplan *diveplan, struct dive *dive, bool show_d
 					/* Translate all results into correct units */
 					mingas_volume = get_volume_units(mingasv.mliter, NULL, &unit);
 					mingas_pressure = get_pressure_units(lastbottomdp->minimum_gas.mbar, &pressure_unit);
+					mingas_d_pressure = get_pressure_units(lrint((double)cyl->end.mbar + deco_pressure_mbar - lastbottomdp->minimum_gas.mbar), &pressure_unit);
 					mingas_depth = get_depth_units(lastbottomdp->depth.mm, NULL, &depth_unit);
 					/* Print it to results */
-					if (cyl->start.mbar > lastbottomdp->minimum_gas.mbar) snprintf(mingas, sizeof(mingas),
-						translate("gettextFromC", "<br>&nbsp;&mdash; <span style='color: green;'>Minimum gas</span> (based on %.1fxSAC/+%dmin@%.0f%s): %.0f%s/%.0f%s"),
-						prefs.sacfactor / 100.0, prefs.problemsolvingtime,
-						mingas_depth, depth_unit,
-						mingas_volume, unit,
-						mingas_pressure, pressure_unit);
-					else snprintf(warning, sizeof(warning), "<br>&nbsp;&mdash; <span style='color: red;'>%s </span> %s",
-						translate("gettextFromC", "Warning:"),
-						translate("gettextFromC", "required minimum gas for ascent already exceeding start pressure of cylinder!"));
+					if (cyl->start.mbar > lastbottomdp->minimum_gas.mbar) {
+						snprintf(mingas, sizeof(mingas), "<br>&nbsp;&mdash; <span style='color: %s;'>%s</span> (%s %.1fx%s/+%d%s@%.0f%s): \
+							%.0f%s/%.0f%s<span style='color: %s;'>/&Delta;:%+.0f%s</span>",
+							mingas_d_pressure > 0 ? "green" :"red",
+							translate("gettextFromC", "Minimum gas"),
+							translate("gettextFromC", "based on"),
+							prefs.sacfactor / 100.0,
+							translate("gettextFromC", "SAC"),
+							prefs.problemsolvingtime,
+							translate("gettextFromC", "min"),
+							mingas_depth, depth_unit,
+							mingas_volume, unit,
+							mingas_pressure, pressure_unit,
+							mingas_d_pressure > 0 ? "grey" :"indianred",
+							mingas_d_pressure, pressure_unit);
+					} else {
+						snprintf(warning, sizeof(warning), "<br>&nbsp;&mdash; <span style='color: red;'>%s </span> %s",
+							translate("gettextFromC", "Warning:"),
+							translate("gettextFromC", "required minimum gas for ascent already exceeding start pressure of cylinder!"));
+					}
 				}
 			/* Print the gas consumption for every cylinder here to temp buffer. */
-			snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s/%.0f%s of <span style='color: red;'><b>%s</b></span> (%.0f%s/%.0f%s in planned ascent)"), volume, unit, pressure, pressure_unit, gasname(&cyl->gasmix), deco_volume, unit, deco_pressure, pressure_unit);
+			if (lrint(volume) > 0)
+				snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s/%.0f%s of <span style='color: red;'><b>%s</b></span> (%.0f%s/%.0f%s in planned ascent)"), volume, unit, pressure, pressure_unit, gasname(&cyl->gasmix), deco_volume, unit, deco_pressure, pressure_unit);
+			else
+				snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s/%.0f%s of <span style='color: red;'><b>%s</b></span>"), volume, unit, pressure, pressure_unit, gasname(&cyl->gasmix));
 
 		} else {
-			snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s (%.0f%s during planned ascent) of <span style='color: red;'><b>%s</b></span>"),
-				volume, unit, deco_volume, unit, gasname(&cyl->gasmix));
+			if (lrint(volume) > 0)
+				snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s of <span style='color: red;'><b>%s</b></span> (%.0f%s during planned ascent)"),
+					volume, unit, gasname(&cyl->gasmix), deco_volume, unit);
+			else
+				snprintf(temp, sz_temp, translate("gettextFromC", "%.0f%s of <span style='color: red;'><b>%s</b></span>"),
+					volume, unit, gasname(&cyl->gasmix));
 		}
 		/* Gas consumption: Now finally print all strings to output */
 		len += snprintf(buffer + len, sz_buffer - len, "%s%s%s<br>", temp, warning, mingas);

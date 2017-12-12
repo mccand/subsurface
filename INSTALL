@@ -2,9 +2,8 @@ Building Subsurface from Source
 ===============================
 
 Subsurface uses quite a few open source libraries and frameworks to do its
-job. The most important ones include libdivecomputer, Qt, Marble
-(more precisely libmarblewidget), libxml2, libxslt, libsqlite3, libzip,
-libgrantlee5 and libgit2.
+job. The most important ones include libdivecomputer, Qt, libxml2, libxslt,
+libsqlite3, libzip, libgrantlee5 and libgit2.
 
 Below are instructions for building Subsurface under some popular
 Linux distributions, for building Subsurface using Homebrew on a Mac,
@@ -14,10 +13,8 @@ Subsurface natively under Windows, so we don't support that at all.
 
 All of the prebuilt binaries that we provide (right now Windows, Mac,
 Ubuntu/Debian/LinuxMint, and openSUSE/Fedora) are built using our own
-custom "flavors" of libdivecomputer and libmarblewidget. You can get
-these from
+custom "flavors" of libdivecomputer. You can get these from
 
-git://git.subsurface-divelog.org/marble (in the Subsurface-branch branch)
 git://git.subsurface-divelog.org/libdc (in the Subsurface-branch branch)
 
 Those branches won't have a pretty history and will include ugly merges,
@@ -101,7 +98,8 @@ sudo apt-get install git g++ make autoconf automake libtool cmake pkg-config \
 	libqt5webkit5-dev libqt5qml5 libqt5quick5 libqt5declarative5 \
 	qtscript5-dev libssh2-1-dev libcurl4-openssl-dev qttools5-dev \
 	qtconnectivity5-dev qtlocation5-dev qtpositioning5-dev \
-	libcrypto++-dev libssl-dev
+	libcrypto++-dev libssl-dev qml-module-qtpositioning qml-module-qtlocation \
+	qml-module-qtquick2
 
 Package names for Ubuntu 16.10
 
@@ -112,7 +110,8 @@ sudo apt-get install git g++ make autoconf automake libtool cmake pkg-config \
 	libqt5webkit5-dev libqt5qml5 libqt5quick5 qtdeclarative5-dev \
 	qtscript5-dev libssh2-1-dev libcurl4-openssl-dev qttools5-dev \
 	qtconnectivity5-dev qtlocation5-dev qtpositioning5-dev \
-	libcrypto++-dev libssl-dev
+	libcrypto++-dev libssl-dev qml-module-qtpositioning qml-module-qtlocation \
+	qml-module-qtquick2
 
 On PCLinuxOS you appear to need the following packages
 
@@ -173,13 +172,9 @@ $ ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/maste
 
 2) Install needed dependencies
 
-$ brew install asciidoc libzip sqlite cmake libusb pkg-config automake libtool hidapi libxml2 curl openssl libssh2
+$ brew install asciidoc libzip cmake libusb pkg-config automake libtool hidapi curl libssh2
 
-3) Make the brew version of sqlite the default
-
-$ brew link --force sqlite
-
-4) Download and install Qt
+3) Download and install Qt
 
 You can build Qt from source or use the prebuilt binaries for Mac. Start
 by downloading the online installer:
@@ -199,7 +194,7 @@ as well as QtWebEngine, Qt3D, Qt Canvas 3D and the Qt Extras.
 
 If you want to build from source (which takes a very long time and a lot of disk)
 
-$ cd ~/Qt/5.5/Src/
+$ cd ~/Qt/5.9.2/Src/
 
 $ ./configure -prefix /usr/local -opensource
 

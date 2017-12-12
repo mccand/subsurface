@@ -10,6 +10,7 @@
 #include <QDesktopServices>
 #include <QGraphicsView>
 #include <QUrl>
+#include <QGraphicsSceneMouseEvent>
 
 DivePixmapItem::DivePixmapItem(QObject *parent) : QObject(parent), QGraphicsPixmapItem()
 {
@@ -29,7 +30,7 @@ void DiveButtonItem::mousePressEvent(QGraphicsSceneMouseEvent *event)
 // paint on screen, but for now, this.
 CloseButtonItem::CloseButtonItem(QObject *parent): DiveButtonItem(parent)
 {
-	static QPixmap p = QPixmap(":trash");
+	static QPixmap p = QPixmap(":list-remove-icon");
 	setPixmap(p);
 	setFlag(ItemIgnoresTransformations);
 }
@@ -129,8 +130,9 @@ DivePictureItem::~DivePictureItem(){
 
 void DivePictureItem::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
-	Q_UNUSED(event);
-	QDesktopServices::openUrl(QUrl::fromLocalFile(fileUrl));
+	if (event->button() == Qt::LeftButton) {
+		QDesktopServices::openUrl(QUrl::fromLocalFile(fileUrl));
+	}
 }
 
 void DivePictureItem::removePicture()

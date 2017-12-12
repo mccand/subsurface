@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 import QtQuick 2.6
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.2 as Controls
 import QtQuick.Window 2.2
 import QtQuick.Dialogs 1.2
 import QtQuick.Layouts 1.3
 import org.subsurfacedivelog.mobile 1.0
-import org.kde.kirigami 2.0 as Kirigami
+import org.kde.kirigami 2.2 as Kirigami
 
 Kirigami.Page {
 	id: diveComputerDownloadWindow
@@ -17,8 +17,8 @@ Kirigami.Page {
 
 	property alias dcImportModel: importModel
 	property bool divesDownloaded: false
-	property bool btEnabled: manager.btEnabled()
-	property string btMessage: manager.btEnabled() ? "" : qsTr("Bluetooth is not enabled")
+	property bool btEnabled: manager.btEnabled
+	property string btMessage: manager.btEnabled ? "" : qsTr("Bluetooth is not enabled")
 
 	DCDownloadThread {
 		id: downloadThread
@@ -59,15 +59,20 @@ Kirigami.Page {
 		width: parent.width
 		Layout.fillWidth: true
 		GridLayout {
+			id: buttonGrid
+			anchors {
+				top: parent.top
+				topMargin: Kirigami.Units.smallSpacing * 4
+			}
 			columns: 2
-			Kirigami.Label { text: qsTr(" Vendor name: ") }
-			property var vendoridx: downloadThread.data().getDetectedVendorIndex("")
-			ComboBox {
+			Controls.Label { text: qsTr(" Vendor name: ") }
+			property var vendoridx: downloadThread.data().getDetectedVendorIndex()
+			Controls.ComboBox {
 				id: comboVendor
 				Layout.fillWidth: true
 				model: vendorList
 				currentIndex: parent.vendoridx
-				delegate: ItemDelegate {
+				delegate: Controls.ItemDelegate {
 					width: comboVendor.width
 					contentItem: Text {
 						text: modelData
@@ -87,18 +92,18 @@ Kirigami.Page {
 				}
 				onCurrentTextChanged: {
 					comboProduct.model = downloadThread.data().getProductListFromVendor(currentText)
-					if (currentIndex == downloadThread.data().getDetectedVendorIndex(currentText))
-						comboProduct.currentIndex = downloadThread.data().getDetectedProductIndex(currentText, comboProduct.currentText)
+					if (currentIndex == downloadThread.data().getDetectedVendorIndex())
+						comboProduct.currentIndex = downloadThread.data().getDetectedProductIndex(currentText)
 				}
 			}
-			Kirigami.Label { text: qsTr(" Dive Computer:") }
-			ComboBox {
+			Controls.Label { text: qsTr(" Dive Computer:") }
+			Controls.ComboBox {
 				id: comboProduct
-				property var productidx: downloadThread.data().getDetectedProductIndex(comboVendor.currentText, currentText)
+				property var productidx: downloadThread.data().getDetectedProductIndex(comboVendor.currentText)
 				Layout.fillWidth: true
 				model: null
 				currentIndex: productidx
-				delegate: ItemDelegate {
+				delegate: Controls.ItemDelegate {
 					width: comboProduct.width
 					contentItem: Text {
 						text: modelData
@@ -126,13 +131,13 @@ Kirigami.Page {
 					currentIndex = productidx
 				}
 			}
-			Kirigami.Label { text: qsTr(" Connection:") }
-			ComboBox {
+			Controls.Label { text: qsTr(" Connection:") }
+			Controls.ComboBox {
 				id: comboConnection
 				Layout.fillWidth: true
 				model: connectionListModel
 				currentIndex: -1
-				delegate: ItemDelegate {
+				delegate: Controls.ItemDelegate {
 					width: comboConnection.width
 					contentItem: Text {
 						text: modelData
@@ -154,6 +159,11 @@ Kirigami.Page {
 				onCurrentTextChanged: {
 					// pattern that matches BT addresses
 					var btAddr = /[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]/ ;
+
+					// On iOS we store UUID instead of device address.
+					if (Qt.platform.os === 'ios')
+						btAddr = /\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/;
+
 					if (btAddr.test(currentText))
 						downloadThread.deviceData.bluetoothMode = true
 					else
@@ -162,7 +172,11 @@ Kirigami.Page {
 			}
 		}
 
-		ProgressBar {
+		Controls.ProgressBar {
+			anchors {
+				top: buttonGrid.bottom
+				topMargin: Kirigami.Units.smallSpacing * 4
+			}
 			id: progressBar
 			Layout.fillWidth: true
 			indeterminate: true
@@ -170,9 +184,13 @@ Kirigami.Page {
 		}
 
 		RowLayout {
-			anchors.left: parent.left
-			anchors.right: parent.right
-			anchors.margins: Kirigami.Units.smallSpacing
+			id: buttonBar
+			anchors {
+				left: parent.left
+				right: parent.right
+				top: progressBar.bottom
+				topMargin: Kirigami.Units.smallSpacing * 2
+			}
 			spacing: Kirigami.Units.smallSpacing
 			SsrfButton {
 				id: download
@@ -181,7 +199,7 @@ Kirigami.Page {
 					text = qsTr("Retry")
 					// strip any BT Name from the address
 					var devName = downloadThread.deviceData.devName
-					downloadThread.deviceData.devName = devName.replace(/ (.*)$/, "")
+					downloadThread.deviceData.devName = devName.replace(/^(.*) /, "")
 					manager.appendTextToLog("DCDownloadThread started for " + downloadThread.deviceData.product + " on "+ downloadThread.deviceData.devName)
 					progressBar.visible = true
 					downloadThread.start()
@@ -197,7 +215,15 @@ Kirigami.Page {
 					manager.appendTextToLog("exit DCDownload screen")
 				}
 			}
-			Kirigami.Label {
+			SsrfButton {
+				id:rescanbutton
+				text: qsTr("Rescan")
+				onClicked: {
+					manager.btRescan()
+				}
+			}
+
+			Controls.Label {
 				Layout.maximumWidth: parent.width - download.width - quitbutton.width
 				text: divesDownloaded ? qsTr(" Downloaded dives") :
 							(manager.progressMessage != "" ? qsTr("Info:") + " " + manager.progressMessage : btMessage)
@@ -206,6 +232,12 @@ Kirigami.Page {
 		}
 
 		ListView {
+			id: dlList
+			anchors {
+				top: buttonBar.bottom
+				topMargin: Kirigami.Units.smallSpacing * 4
+			}
+			Layout.bottomMargin: bottomButtons.height * 1.5
 			Layout.fillWidth: true
 			Layout.fillHeight: true
 
@@ -225,8 +257,9 @@ Kirigami.Page {
 		}
 
 		RowLayout {
+			id: bottomButtons
 			Layout.fillWidth: true
-			Kirigami.Label {
+			Controls.Label {
 				text: ""  // Spacer on the left for hamburger menu
 				Layout.fillWidth: true
 			}
@@ -243,7 +276,7 @@ Kirigami.Page {
 					stackView.pop();
 				}
 			}
-			Kirigami.Label {
+			Controls.Label {
 				text: ""  // Spacer between 2 button groups
 				Layout.fillWidth: true
 			}

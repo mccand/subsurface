@@ -34,3 +34,4 @@ Subsurface.app
 !android/**/*.xml
 build*
 mobile-widgets/qml/kirigami
+/.project
